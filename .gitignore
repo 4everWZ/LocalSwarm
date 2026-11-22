@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+.swarm/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.db.plans*
+*.db.lock
+*.worktrees/
+*.key
+.env

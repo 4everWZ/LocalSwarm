@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Local Swarm · Board</title>
+<style>
+:root{color-scheme:light;--ink:#182230;--sub:#475569;--line:#d6dfe8;--soft:#edf3f8;--blue:#144c87;--good:#1d673e;--warn:#925611;--bad:#a32e35;--white:#fff}
+*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;font:14px/1.5 system-ui,sans-serif;color:var(--ink);background:#f5f7fa}
+button,input{font:inherit}button{padding:.43rem .72rem;border:1px solid #aab9c9;border-radius:6px;background:white;color:var(--ink);cursor:pointer}button:hover:not(:disabled){background:var(--soft)}button:disabled{color:var(--sub);opacity:.6;cursor:default}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #1170c5;outline-offset:3px}
+.wrap{max-width:1130px;margin:auto;padding:0 20px}
+header{background:#fff;border-bottom:1px solid var(--line)}.heading{display:flex;align-items:center;gap:12px;justify-content:space-between;min-height:62px}.heading h1{font-size:21px;margin:0;letter-spacing:-.025em}.connection{font-size:12px;color:var(--sub);display:flex;align-items:center;gap:7px}.connection:before,.pill:before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}.connection[data-state="connected"]{color:var(--good)}.connection[data-state="retry"]{color:var(--warn)}
+nav{display:flex;gap:6px;align-items:center;overflow:auto}nav button{border:1px solid transparent;border-radius:6px 6px 0 0;color:var(--sub);font-weight:600;white-space:nowrap}nav button[aria-selected="true"]{color:var(--blue);background:var(--soft);border-color:var(--line);border-bottom-color:var(--soft)}
+main{padding-top:18px!important;padding-bottom:30px!important}.card{background:white;border:1px solid var(--line);border-radius:8px;margin-bottom:14px;padding:14px 16px}.timer{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;gap:9px 14px;align-items:center}
+.timer h2,.panel-head h2,.aside h2{font-size:15px;margin:0}.timer p,.panel-head p,.aside p{margin:2px 0 0;color:var(--sub);font-size:12px}.timer input{width:100%;accent-color:var(--blue)}.timer output{grid-column:2;color:var(--sub);font-size:12px;overflow-wrap:anywhere}.timer .controls{display:flex;flex-wrap:wrap;gap:7px}.strong{background:#1a4f89;color:#fff;border-color:#1a4f89;font-weight:700}.strong:hover:not(:disabled){background:#153f6c}.key{color:var(--sub);font-size:12px}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 235px;gap:14px;align-items:start}.panel-head{display:flex;justify-content:space-between;gap:15px;align-items:start;margin-bottom:12px}section[hidden]{display:none}.empty{padding:20px 14px;background:#f8fafc;border:1px dashed #bbc8d5;border-radius:6px;color:var(--sub);margin:0;overflow-wrap:anywhere}.timeline,.roster,.links{list-style:none;margin:0;padding:0}.timeline li{padding:10px 0;border-top:1px solid var(--line)}.timeline li:last-child{padding-bottom:0}.headline{display:flex;justify-content:space-between;align-items:start;gap:10px}.identity{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0;overflow-wrap:anywhere}.identity strong{font-size:13px}.meta,.mini{font-size:12px;color:var(--sub);overflow-wrap:anywhere}.body{white-space:pre-wrap;overflow-wrap:anywhere;margin:5px 0 0}.mentions{margin:5px 0 0;font-size:12px;color:var(--blue);overflow-wrap:anywhere}.pill{display:inline-flex;padding:1px 6px;gap:5px;align-items:center;border:1px solid var(--line);border-radius:5px;font-size:11px;white-space:normal;color:var(--sub);overflow-wrap:anywhere}.pill[data-tone="good"]{color:var(--good);background:#f1f8f3}.pill[data-tone="warn"]{color:var(--warn);background:#fff8e9}.pill[data-tone="bad"]{color:var(--bad);background:#fff1f1}.aside ul{display:grid;gap:8px}.aside li{display:flex;align-items:start;justify-content:space-between;gap:7px;font-size:12px;overflow-wrap:anywhere}.aside .empty{margin-top:10px;padding:10px}.member-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:8px}.member{border:1px solid var(--line);border-radius:6px;padding:9px 10px}.member p{margin:3px 0;color:var(--sub);overflow-wrap:anywhere}.graph-frame{overflow:auto;border:1px solid var(--line);border-radius:6px;background:#f8fafc}.graph-frame svg{display:block;margin:0 auto}.links li{border-top:1px solid var(--line);padding:6px 0;overflow-wrap:anywhere}.subhead{font-size:13px;margin:12px 0 3px}.sr-only{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden;white-space:nowrap}.notice{display:flex;align-items:center;justify-content:space-between;gap:10px}.notice p{margin:0;color:var(--sub);overflow-wrap:anywhere}
+@media(max-width:700px){.wrap{padding-inline:13px}.layout{grid-template-columns:1fr}.timer{grid-template-columns:1fr auto}.timer input,.timer output{grid-column:1/-1}.timer .controls{grid-column:2;grid-row:1}.headline{flex-wrap:wrap;gap:2px 9px}.aside{order:2}.card{padding:11px 12px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+.plan-list,.task-list{list-style:none;padding:0;margin:0;display:grid;gap:9px}.plan-card{border:1px solid var(--line);border-radius:6px;padding:12px;min-width:0}.plan-card h3{font-size:14px;margin:0;overflow-wrap:anywhere}.plan-card .task-list{margin-top:9px}.plan-card .task-list>li{border-top:1px solid var(--line);padding-top:8px;min-width:0}.task-details{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:2px 8px;font-size:12px;margin:6px 0 0}.task-details dt{color:var(--sub)}.task-details dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}.revision{font-family:ui-monospace,monospace;user-select:all}.plan-hint{margin:0 0 10px;color:var(--sub);font-size:12px}
+</style>
+</head>
+<body>
+<header>
+<div class="wrap heading"><h1>Local Swarm</h1><div id="connection" class="connection" role="status">Starting…</div></div>
+<nav class="wrap" role="tablist" aria-label="Workspace views">
+<button id="tab-board" type="button" role="tab" aria-controls="view-board" aria-selected="true" tabindex="0">Board</button>
+<button id="tab-members" type="button" role="tab" aria-controls="view-members" aria-selected="false" tabindex="-1">Members</button>
+<button id="tab-graph" type="button" role="tab" aria-controls="view-graph" aria-selected="false" tabindex="-1">Graph</button>
+<button id="tab-plans" type="button" role="tab" aria-controls="view-plans" aria-selected="false" tabindex="-1">Plans</button>
+</nav>
+</header>
+<main class="wrap">
+<div id="notice" class="card notice" hidden><p id="notice-text"></p><div><button id="reconnect" type="button">Retry connection</button> <button id="demo" type="button">Load demo</button></div></div>
+<div class="card timer">
+<div><h2>Timeline</h2><p id="timeline-note">Scrub history without pausing collection.</p></div>
+<label class="sr-only" for="scrub">Replay position</label>
+<input id="scrub" type="range" min="0" max="0" value="0" step="1" disabled aria-describedby="timeline-note">
+<div class="controls"><button id="play" type="button" aria-label="Play replay" disabled>Play</button><button id="live" class="strong" type="button" disabled>Jump to latest</button></div>
+<output id="clock" for="scrub">No events</output>
+</div>
+<div class="layout">
+<div>
+<section id="view-board" class="card" role="tabpanel" aria-labelledby="tab-board" tabindex="0">
+<div class="panel-head"><div><h2>Activity</h2><p>Chronological record of model and worker updates.</p></div><span id="event-count" class="key"></span></div>
+<ol id="activity" class="timeline"></ol><p id="board-empty" class="empty">No activity yet.</p>
+</section>
+<section id="view-members" class="card" role="tabpanel" aria-labelledby="tab-members" tabindex="0" hidden>
+<div class="panel-head"><div><h2>Members</h2><p id="member-hint">Current states and configured model details.</p></div></div>
+<ul id="roster" class="roster member-grid"></ul><p id="members-empty" class="empty">No members yet.</p>
+</section>
+<section id="view-graph" class="card" role="tabpanel" aria-labelledby="tab-graph" tabindex="0" hidden>
+<div class="panel-head"><div><h2>Mention graph</h2><p>Arrows run from an event author to a mentioned member. Counts include repeated mentions.</p></div></div>
+<div id="canvas" class="graph-frame" hidden></div><p id="graph-empty" class="empty">No members or mentions at this position.</p>
+<div id="edge-summary" hidden><h3 class="subhead">Connections</h3><ul id="edges" class="links"></ul></div>
+</section>
+<section id="view-plans" class="card" role="tabpanel" aria-labelledby="tab-plans" tabindex="0" hidden>
+<div class="panel-head"><div><h2>Plans</h2><p>Task execution, dependencies, and review evidence.</p></div><span id="plan-count" class="key" aria-live="polite"></span></div>
+<p id="plan-hint" class="plan-hint" hidden></p>
+<ul id="plans" class="plan-list"></ul><p id="plans-empty" class="empty">No plans recorded yet.</p>
+</section>
+</div>
+<aside class="card aside" aria-labelledby="summary-title"><h2 id="summary-title">Member states</h2><p id="summary-mode">Latest event position</p><ul id="summary" class="roster"></ul><p id="summary-empty" class="empty">Waiting for members.</p></aside>
+</div>
+</main>
+<script>
+"use strict";
+(() => {
+const byId=id=>document.getElementById(id);
+const $={connection:byId("connection"),notice:byId("notice"),note:byId("notice-text"),retry:byId("reconnect"),demo:byId("demo"),scrub:byId("scrub"),play:byId("play"),live:byId("live"),clock:byId("clock"),activity:byId("activity"),eventCount:byId("event-count"),boardEmpty:byId("board-empty"),roster:byId("roster"),membersEmpty:byId("members-empty"),memberHint:byId("member-hint"),canvas:byId("canvas"),graphEmpty:byId("graph-empty"),edgeSummary:byId("edge-summary"),edges:byId("edges"),summary:byId("summary"),summaryEmpty:byId("summary-empty"),summaryMode:byId("summary-mode")};
+const tabNames=["board","members","graph","plans"];
+let plans=[],planSupported=false,planRefresh=null,planInFlight=false,planDirty=false,planStale=false,planPoll=null;
+const canConnect=location.protocol==="http:"||location.protocol==="https:" ? ["localhost","127.0.0.1","[::1]"].includes(location.hostname) : false;
+let eventList=[],eventIds=new Set(),roster=new Map(),snapshotSeq=0,position=null,source=null,retryTimer=null,replayTimer=null,connectEpoch=0,retryDelay=800,isDemo=false,activeTab="board";
+const clean=v=>typeof v==="string"?v.trim():"";
+function node(tag,value,cls){const n=document.createElement(tag);if(value!==undefined)n.textContent=value;if(cls)n.className=cls;return n;}
+function el(tag,ns){const n=document.createElementNS("http://www.w3.org/2000/svg",tag); for(const [k,v] of Object.entries(ns||{}))n.setAttribute(k,String(v));return n;}
+function tone(s){if(/complete|success|ready|idle|done|online|passed/i.test(s))return "good";if(/fail|error|blocked|cancel/i.test(s))return "bad";if(/run|wait|queue|pause|work|busy|pending|implement|verif/i.test(s))return "warn";return "neutral";}
+function pill(s){const n=node("span",s||"Not recorded","pill");n.dataset.tone=tone(s||"");return n}
+function seqOf(v){if(typeof v!=="number"&&(typeof v!=="string"||!/^[0-9]+$/.test(v)))return null;const n=Number(v);return Number.isSafeInteger(n)&&n>=0?n:null;}
+function normalEvent(raw){
+ if(!raw||typeof raw!=="object")return null;
+ const seq=seqOf(raw.seq); if(seq===null)return null;
+ return {seq,actor:clean(raw.actor),mentions:Array.isArray(raw.mentions)?raw.mentions.map(clean).filter(Boolean):[],content:typeof raw.content==="string"?raw.content:"",status:clean(raw.status),created_at:clean(raw.created_at),kind:clean(raw.kind)};
+}
+function normalMember(raw){const name=clean(raw?.name);return name?{name,role:clean(raw.role),status:raw.active?"Running":clean(raw.status),backend:clean(raw.backend),model:clean(raw.model)}:null;}
+function labelText(v){return typeof v==="object"&&v?clean(v.message)||clean(v.reason)||clean(v.summary)||clean(v.id)||clean(v.name):clean(v);}
+function labels(v){return (Array.isArray(v)?v:[v]).map(labelText).filter(Boolean);}
+function normalTask(t){
+ const id=clean(t?.id)||clean(t?.task_id); if(!id)return null;
+ const revision=[t.review_sha,t.revision?.sha,t.revision,t.sha,t.commit_sha,t.commit].find(v=>typeof v==="string"&&/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(v))||"";
+ return {id,brief:clean(t.brief)||clean(t.goal)||clean(t.title),criterion:clean(t.criterion),waiting:labels(t.waiting_on),attempt:Number.isInteger(t.attempt)&&t.attempt>0?String(t.attempt):"",state:clean(t.state)||clean(t.status),needs:labels(t.needs??t.dependencies??t.depends_on),worker:labelText(t.worker??t.assignee),verifier:labelText(t.verifier??t.reviewer),notes:[...new Set([...labels(t.blockers??t.blocker),...labels(t.diagnostic??t.reason??t.error)])],revision,evidence:labelText(t.evidence),integrated:typeof t.integrated==="boolean"?t.integrated:null};
+}
+function setPlans(s){
+ planSupported=Array.isArray(s?.plans);planStale=false;
+ plans=(planSupported?s.plans:[]).flatMap(p=>{
+  const id=clean(p?.id)||clean(p?.plan_id);if(!id)return [];
+  return [{id,goal:clean(p.goal)||clean(p.title),state:clean(p.state)||clean(p.status),tasks:(Array.isArray(p.tasks)?p.tasks:[]).map(normalTask).filter(Boolean)}];
+ });
+}
+function lastSeq(){return eventList.length?eventList[eventList.length-1].seq:0;}
+function addEvent(raw){
+ const e=normalEvent(raw);if(!e||eventIds.has(e.seq))return false;
+ eventIds.add(e.seq);let i=eventList.length;while(i>0&&eventList[i-1].seq>e.seq)i--;
+ eventList.splice(i,0,e);return true;
+}
+function seed(s){
+ eventList=[];eventIds=new Set();roster=new Map();
+ for(const raw of s.members){const m=normalMember(raw);if(m)roster.set(m.name,m);}
+ for(const raw of s.events)addEvent(raw);
+ snapshotSeq=lastSeq();position=null;setPlans(s);
+}
+function timeString(value){if(!value)return "";const d=new Date(value);return Number.isNaN(d.getTime())?value:d.toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit"});}
+function viewAt(at){
+ const items=at===null?eventList:eventList.filter(e=>e.seq<=at);
+ const states=new Map(Array.from(roster,([id,m])=>[id,{...m,status:at===null?m.status:"",firstSeen:null,lastSeen:null}]));
+ const outgoing=new Map();
+ function use(name){if(!states.has(name))states.set(name,{name,role:"",backend:"",model:"",status:"",firstSeen:null,lastSeen:null});return states.get(name);}
+ for(const e of items){
+  if(!e.actor)continue;
+  const actor=use(e.actor);if(actor.firstSeen===null)actor.firstSeen=e.seq; actor.lastSeen=e.seq;
+  function update(member,status){if(status&&(at!==null||e.seq>snapshotSeq||!roster.get(member.name)?.status))member.status=status;}
+  const spawned=e.actor==="operator"&&e.status.toLowerCase()==="spawned";
+  if(!spawned)update(actor,e.status);
+  for(const target of e.mentions){const mentioned=use(target);if(mentioned.firstSeen===null)mentioned.firstSeen=e.seq;if(spawned)update(mentioned,e.status);const k=JSON.stringify([e.actor,target]); const edge=outgoing.get(k)||{from:e.actor,to:target,count:0};edge.count++;outgoing.set(k,edge);}
+ }
+ return {items,states:[...states.values()],edges:[...outgoing.values()]};
+}
+function currentIndex(){if(position===null)return eventList.length;return eventList.findIndex(e=>e.seq===position)+1;}
+function statusMessage(message,state=""){ $.connection.textContent=message;$.connection.dataset.state=state; }
+function notice(message,allowRetry=false,allowDemo=true){$.notice.hidden=!message;$.note.textContent=message||"";$.retry.hidden=!allowRetry;$.demo.hidden=!allowDemo;}
+function activate(name,focus=false){
+ activeTab=name;document.title="Local Swarm · "+name[0].toUpperCase()+name.slice(1);
+ for(const t of tabNames){const selected=name===t, tab=byId("tab-"+t);tab.setAttribute("aria-selected",String(selected));tab.tabIndex=selected?0:-1;byId("view-"+t).hidden=!selected;}
+ if(focus)byId("tab-"+name).focus();
+ updatePlanPolling();if(name==="plans"&&source)schedulePlanRefresh();
+ render();
+}
+function updateTimeline(){
+ const i=currentIndex(), count=eventList.length, e=i?eventList[i-1]:null;
+ $.scrub.max=count;$.scrub.value=i;$.scrub.disabled=!count;$.play.disabled=!count;$.live.disabled=position===null;
+ const msg=position===null ? count?"Latest · "+count+" event"+(count===1?"":"s"):"No events" : e ? "Replay "+i+" of "+count+" · #"+e.seq+(e.created_at?" · "+timeString(e.created_at):"") : "Replay start · Before first event";
+ $.clock.textContent=msg;$.scrub.setAttribute("aria-valuetext",msg);
+ $.play.textContent=replayTimer?"Pause":i===count?"Replay":"Play";$.play.setAttribute("aria-label",replayTimer?"Pause replay":i===count?"Replay from beginning":"Play replay");
+}
+function renderBoard(items){
+ $.activity.replaceChildren();
+ $.boardEmpty.hidden=items.length>0;
+ $.boardEmpty.textContent=position===-1?"Before the first recorded event.":"No recorded activity. New events will appear here.";
+ $.eventCount.textContent=items.length+" event"+(items.length===1?"":"s");
+ const frag=document.createDocumentFragment();
+ for(const e of items){
+  const item=node("li"), head=node("div",undefined,"headline"), id=node("div",undefined,"identity");
+  id.append(node("strong",e.actor||"Unattributed"),node("span","#"+e.seq+(e.kind?" · "+e.kind:""),"meta"));
+  if(e.status)id.append(pill(e.status));head.append(id);
+  const when=node("time",timeString(e.created_at),"meta");if(e.created_at&&!Number.isNaN(new Date(e.created_at).getTime()))when.dateTime=e.created_at;head.append(when);
+  item.append(head);if(e.content)item.append(node("p",e.content,"body"));
+  if(e.mentions.length)item.append(node("p","Mentions: "+e.mentions.join(", "),"mentions"));frag.append(item);
+ }
+ $.activity.append(frag);
+}
+function renderMembers(states){
+ $.roster.replaceChildren();$.membersEmpty.hidden=states.length>0;
+ $.memberHint.textContent=position===null?"Latest states and configured model details.":"States reconstructed from events up to the selected point; current roster metadata is shown when available.";
+ for(const m of states){
+  const li=node("li",undefined,"member"),h=node("div",undefined,"headline");
+  h.append(node("strong",m.name,"body"),pill(m.status));li.append(h);
+  if(m.role)li.append(node("p",m.role,"mini"));
+  if(m.backend||m.model)li.append(node("p",[m.backend,m.model].filter(Boolean).join(" / "),"mini"));
+  if(m.lastSeen!==null)li.append(node("p","Last authored event #"+m.lastSeen,"mini"));$.roster.append(li);
+ }
+}
+function renderSummary(states){
+ $.summary.replaceChildren();$.summaryEmpty.hidden=states.length>0;
+ $.summaryMode.textContent=position===null?"Latest event position":"Historical event position";
+ for(const m of states){const li=node("li");li.append(node("span",m.name),pill(m.status));$.summary.append(li);}
+}
+function renderGraph(states,edges){
+ $.canvas.replaceChildren();$.edges.replaceChildren();
+ const visible=states.filter(m=>position===null||m.firstSeen!==null);
+ $.canvas.hidden=!visible.length;$.graphEmpty.hidden=!!visible.length;$.edgeSummary.hidden=!edges.length;
+ if(!visible.length)return;
+ const columns=Math.min(4,Math.ceil(Math.sqrt(visible.length))),w=Math.max(390,columns*155),h=Math.max(145,Math.ceil(visible.length/columns)*90+40),mids=new Map();
+ const svg=el("svg",{width:w,height:h,viewBox:"0 0 "+w+" "+h,"aria-label":"Member mention graph",role:"img"});
+ const defs=el("defs"),marker=el("marker",{id:"arrowhead",markerWidth:9,markerHeight:8,refX:8,refY:4,orient:"auto",markerUnits:"userSpaceOnUse"});
+ marker.append(el("path",{d:"M0 0 L8 4 L0 8 Z",fill:"#476e8e"}));defs.append(marker);svg.append(defs);
+ visible.forEach((m,i)=>mids.set(m.name,{x:w/columns*(i%columns+.5),y:65+90*Math.floor(i/columns)}));
+ for(const edge of edges){
+  const a=mids.get(edge.from),b=mids.get(edge.to);
+  if(a&&b){
+   let d,x,y;
+   if(a===b){d="M "+(a.x-13)+" "+(a.y-19)+" C "+(a.x-44)+" "+(a.y-56)+" "+(a.x+40)+" "+(a.y-54)+" "+(a.x+13)+" "+(a.y-20);x=a.x;y=a.y-41;}
+   else{const dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy),ux=dx/len,uy=dy/len;
+    const gap=Math.min(22/Math.max(Math.abs(uy),.001),61/Math.max(Math.abs(ux),.001));
+    const x1=a.x+ux*gap,y1=a.y+uy*gap,x2=b.x-ux*(gap+4),y2=b.y-uy*(gap+4);
+    x=(x1+x2)/2-uy*17;y=(y1+y2)/2+ux*17;
+    d="M "+x1+" "+y1+" Q "+x+" "+y+" "+x2+" "+y2;
+   }
+   const path=el("path",{d,fill:"none",stroke:"#476e8e","stroke-width":Math.min(3.5,1+Math.log2(edge.count)),"marker-end":"url(#arrowhead)"});
+   const title=el("title");title.textContent=edge.from+" → "+edge.to+" × "+edge.count;path.append(title);svg.append(path);
+  }
+  $.edges.append(node("li",edge.from+" → "+edge.to+" · "+edge.count+" mention"+(edge.count===1?"":"s")));
+ }
+ for(const m of visible){const {x,y}=mids.get(m.name), group=el("g"),title=el("title");
+  title.textContent=m.name+(m.status?" · "+m.status:"");group.append(title,el("rect",{x:x-59,y:y-19,width:118,height:38,rx:6,fill:"#fff",stroke:"#7697b6"}));
+  const label=el("text",{x,y:y-2,"text-anchor":"middle",fill:"#193a59","font-family":"system-ui,sans-serif","font-size":12,"font-weight":650});
+  label.textContent=Array.from(m.name).length>15?Array.from(m.name).slice(0,14).join("")+"…":m.name;
+  const sub=el("text",{x,y:y+12,"text-anchor":"middle",fill:"#475569","font-family":"system-ui,sans-serif","font-size":9});
+  sub.textContent=m.status?Array.from(m.status).slice(0,21).join(""):"Not recorded";group.append(label,sub);svg.append(group);
+ }
+ $.canvas.append(svg);
+}
+function renderPlans(){
+ const list=byId("plans"),empty=byId("plans-empty"),hint=byId("plan-hint"),count=byId("plan-count");
+ list.replaceChildren();empty.hidden=plans.length>0;count.textContent=plans.length?plans.length+" "+(plans.length===1?"plan":"plans"):"";
+ empty.textContent=planSupported?"No plans recorded yet.":isDemo?"This sample has no plans.":"No plan snapshot available.";
+ const notes=[];if(position!==null)notes.push("Plans show the latest saved state while the activity timeline is in replay.");if(planStale)notes.push("Plan refresh failed; showing the last saved state.");
+ hint.hidden=!notes.length;hint.textContent=notes.join(" ");
+ for(const p of plans){
+  const item=node("li",undefined,"plan-card"),header=node("div",undefined,"headline");
+  header.append(node("h3",p.goal||p.id),pill(p.state.replaceAll("_"," ")));item.append(header);
+  if(p.goal)item.append(node("div",p.id,"meta"));
+  const tasks=node("ol",undefined,"task-list");
+  for(const t of p.tasks){
+   const row=node("li"),line=node("div",undefined,"headline"),identity=node("div",undefined,"identity"),details=node("dl",undefined,"task-details");
+   identity.append(node("strong",t.id));if(t.brief)identity.append(node("span",t.brief,"body"));
+   line.append(identity,pill(t.state.replaceAll("_"," ")));row.append(line);
+   const attribute=(key,value,cls)=>{if(value)details.append(node("dt",key),node("dd",value,cls));};
+   attribute("Depends on",t.needs.join(", "));attribute("Waiting on",t.waiting.join(", "));attribute("Criterion",t.criterion);attribute("Attempt",t.attempt);attribute("Worker",t.worker);attribute("Verifier",t.verifier);attribute("Blockers / notes",t.notes.join("\n"));attribute(t.state==="blocked"?"Blocker evidence":"Review evidence",t.evidence);attribute("Review revision",t.revision,"revision");if(t.state==="passed"&&t.integrated!==null)attribute("Integration",t.integrated?"Integrated":"Awaiting integration");
+   if(details.childNodes.length)row.append(details);tasks.append(row);
+  }
+  if(p.tasks.length)item.append(tasks);else item.append(node("p","No tasks recorded.","meta"));
+  list.append(item);
+ }
+}
+function render(){
+ updateTimeline();
+ const v=viewAt(position);
+ if(activeTab==="board")renderBoard(v.items);
+ if(activeTab==="members")renderMembers(v.states);
+ if(activeTab==="graph")renderGraph(v.states,v.edges);
+ if(activeTab==="plans")renderPlans();
+ renderSummary(v.states);
+}
+function stopReplay(){if(replayTimer!==null){clearInterval(replayTimer);replayTimer=null;}}
+function gotoIndex(i){position=i===0?-1:eventList[i-1]?.seq??null;render();}
+function toggleReplay(){
+ if(replayTimer!==null){stopReplay();render();return;}
+ if(!eventList.length)return;
+ if(currentIndex()>=eventList.length)gotoIndex(0);
+ replayTimer=setInterval(()=>{
+  const next=currentIndex()+1;
+  if(next>=eventList.length){gotoIndex(eventList.length);stopReplay();render();}
+  else gotoIndex(next);
+ },750);render();
+}
+for(const [i,n] of tabNames.entries()){
+ const t=byId("tab-"+n);t.addEventListener("click",()=>activate(n));
+ t.addEventListener("keydown",e=>{
+  const idx=e.key==="ArrowLeft"?(i+tabNames.length-1)%tabNames.length:e.key==="ArrowRight"?(i+1)%tabNames.length:e.key==="Home"?0:e.key==="End"?tabNames.length-1:null;
+  if(idx!==null){e.preventDefault();activate(tabNames[idx],true);}
+ });
+}
+$.scrub.addEventListener("input",()=>{stopReplay();gotoIndex(Number($.scrub.value));});
+$.live.addEventListener("click",()=>{stopReplay();position=null;render();});
+$.play.addEventListener("click",toggleReplay);
+function updatePlanPolling(){
+ if(planPoll!==null){clearInterval(planPoll);planPoll=null;}
+ if(canConnect&&!isDemo&&activeTab==="plans"&&source)planPoll=setInterval(schedulePlanRefresh,5000);
+}
+function disconnect(){if(source){source.close();source=null;}if(retryTimer!==null){clearTimeout(retryTimer);retryTimer=null;}
+ if(planRefresh!==null){clearTimeout(planRefresh);planRefresh=null;}
+ planDirty=false;updatePlanPolling();
+}
+function schedulePlanRefresh(){
+ if(!canConnect||isDemo)return;
+ planDirty=true;if(planInFlight||planRefresh!==null)return;
+ const epoch=connectEpoch;
+ planRefresh=setTimeout(async()=>{
+  planRefresh=null;if(epoch!==connectEpoch)return;
+  planInFlight=true;planDirty=false;
+  try{
+   const response=await fetch("/snapshot",{cache:"no-store",credentials:"same-origin",redirect:"error"});
+   if(!response.ok)throw new Error("Snapshot unavailable");
+   const snap=await response.json();
+   if(epoch===connectEpoch){setPlans(snap);if(activeTab==="plans")renderPlans();}
+  }catch(_){if(epoch===connectEpoch){planStale=true;if(activeTab==="plans")renderPlans();}}
+  finally{planInFlight=false;if(planDirty)schedulePlanRefresh();}
+ },250);
+}
+function handleStream(message){
+ if(isDemo)return;
+ try{const raw=JSON.parse(message.data);if(addEvent(raw)){render();schedulePlanRefresh();}else if(message.type==="plan")schedulePlanRefresh();}catch(_){/* Ignore unsupported non-event data. */}
+}
+function openStream(){
+ if(!canConnect||isDemo)return;
+ const epoch=connectEpoch;
+ try{const own=new EventSource("/events?since="+encodeURIComponent(lastSeq()));source=own;updatePlanPolling();
+  own.onopen=()=>{if(source!==own)return;retryDelay=800;statusMessage("Live · local feed","connected");notice("");schedulePlanRefresh();};
+  const ingest=message=>{if(source===own)handleStream(message);};
+  own.onmessage=ingest;own.addEventListener("event",ingest);own.addEventListener("activity",ingest);own.addEventListener("plan",ingest);
+  own.onerror=()=>{if(source!==own)return;disconnect();statusMessage("Reconnecting…","retry");notice("Local feed interrupted. Showing saved events while reconnecting.",true);retryTimer=setTimeout(()=>{if(epoch===connectEpoch){retryTimer=null;openStream();}},retryDelay);retryDelay=Math.min(12000,retryDelay*2);};
+ }catch(_){statusMessage("Live feed unavailable","retry");notice("Live streaming is unavailable in this browser. Retry to refresh the snapshot.",true);}
+}
+async function connect(){
+ if(!canConnect)return;
+ const epoch=++connectEpoch;
+ disconnect();stopReplay();if(isDemo){isDemo=false;seed({events:[],members:[]});render();}
+ statusMessage("Connecting…");notice("");
+ try{
+  const response=await fetch("/snapshot",{cache:"no-store",credentials:"same-origin",redirect:"error"});
+  if(!response.ok)throw new Error("Snapshot unavailable");
+  const snap=await response.json();
+  if(!snap||!Array.isArray(snap.events)||!Array.isArray(snap.members))throw new Error("Unexpected snapshot");
+  if(epoch!==connectEpoch)return;
+  seed(snap);render();openStream();
+ }catch(_){if(epoch!==connectEpoch)return;statusMessage("Offline");notice("No local snapshot is available. Start the local server or inspect the sample workspace.",true);}
+}
+$.retry.addEventListener("click",connect);
+$.demo.addEventListener("click",()=>{
+ ++connectEpoch;disconnect();stopReplay();isDemo=true;
+ seed({plans:[{id:"sample",goal:"Verify a local release note",status:"Complete",tasks:[{id:"find-note",brief:"Locate the sample release note.",state:"Complete",worker:"Reader"},{id:"check-date",brief:"Check the date.",state:"Complete",needs:["find-note"],verifier:"Checker"}]}],members:[{name:"Coordinator",role:"Demo coordinator",status:"Complete"},{name:"Reader",role:"Demo worker",status:"Complete"},{name:"Checker",role:"Demo reviewer",status:"Complete"}],
+ events:[
+  {seq:1,actor:"Coordinator",mentions:["Reader"],content:"Find the release note in the local sample folder.",status:"Running",created_at:"2026-01-01T09:00:00Z",kind:"task"},
+  {seq:2,actor:"Reader",mentions:["Checker"],content:"Found a candidate note. Check its stated date.",status:"Running",created_at:"2026-01-01T09:00:03Z",kind:"handoff"},
+  {seq:3,actor:"Checker",mentions:["Reader"],content:"The sample note matches the requested date.",status:"Complete",created_at:"2026-01-01T09:00:07Z",kind:"review"},
+  {seq:4,actor:"Reader",mentions:["Coordinator"],content:"Returned the verified sample note.",status:"Complete",created_at:"2026-01-01T09:00:10Z",kind:"result"},
+  {seq:5,actor:"Coordinator",mentions:[],content:"Sample task complete.",status:"Complete",created_at:"2026-01-01T09:00:12Z",kind:"result"}
+ ]});
+ statusMessage("Demo · external connections off");notice("Sample data only. This demo will not connect or send commands.",canConnect,false);render();
+});
+window.addEventListener("pagehide",()=>{++connectEpoch;disconnect();stopReplay();});window.addEventListener("pageshow",e=>{if(e.persisted&&!isDemo&&canConnect)connect();});
+render();
+if(canConnect)connect();else{statusMessage("Offline preview");notice("Open through the loopback server for live data, or load an optional sample.",false);}
+})();
+</script>
+</body>
+</html>

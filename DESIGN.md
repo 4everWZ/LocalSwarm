@@ -1,0 +1,31 @@
+# LocalSwarm design
+
+LocalSwarm separates what the agents **say**, what the scheduler **does**, and what actually **lands in Git**.
+
+## Coordination and replay
+
+The long-lived, loopback-only service owns the SQLite board and worker scheduler. MCP clients connect and disconnect independently. The coordinator assigns scoped work and previews integration; worker capabilities allow reading and posting on the board; the browser is read-only. Only the terminal operator can authorize integration. A scheduled role can also submit the structured report for its own task.
+
+Workers receive a brief and a Git worktree. An addressed post queues input for that member. The scheduler claims posts in order, combines pending mentions into one turn, and runs no more than one turn per member at a time. A waiting post is not a process receipt: the service marks a run finished after the process returns. A restart marks an outstanding claim interrupted rather than automatically sending its prompt again.
+
+Replay reads persisted events in sequence. The mention graph projects message traffic, not task dependencies or tool actions. The Plans tab shows the latest saved task state separately. Scrubbing the timeline never invokes a model or replays a side effect.
+
+## Task plans and evidence
+
+A plan is a persisted directed acyclic graph, specified by the operator or proposed by the coordinator. Each task defines its dependencies, change scope, acceptance criterion, implementation role and provider selection. The scheduler starts independent eligible tasks and waits for prerequisites to be verified and present in the target branch.
+
+Implementation and verification are separate phases of each attempt. An implementation worker reports readiness for its exact commit. A verifier receives a worktree pinned to that commit and reports evidence with a pass or rework verdict. Rework can schedule a fresh attempt within the task's limit. A passing report and an integrated commit are separate states. Free-text board posts cannot satisfy a task gate.
+
+## Provider sessions and Git
+
+The Codex adapter uses `codex exec --json` and `codex exec resume`; the Claude Code adapter uses print mode, structured output, and `--resume`. A saved provider session ID restores conversation context in a new process, not a suspended process or in-flight command. The mock adapter exercises the scheduler without contacting a provider.
+
+A worker's proposed Git revision and its target base are explicit. A verifier can be pinned to the candidate revision. Merge authorization is separate from an agent report: the terminal operator approves the exact pair, and the service checks the clean target, expected revisions, and paths across the commit range before a fast-forward. When parallel proposals diverge, the target rejects the stale fast-forward; build on the updated base and verify the replacement commit before trying to integrate it. Worktree and merge checks do not replace the operator-provisioned launcher for process and credential isolation.
+
+Run the local tests with `python3 -m unittest discover -s tests -v`.
+
+## Related systems
+
+- [Google Antigravity Swarm](https://antigravity.google/docs/swarm/) inspired the coordinator, worker, verifier, shared board, and replay of public mentions. LocalSwarm makes its own persistence and worker lifecycle choices.
+- [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode) documents JSONL events and resuming by session ID. The [Codex App Server](https://learn.chatgpt.com/docs/app-server) offers a separate interface for ongoing turn control; LocalSwarm's adapter uses the CLI.
+- [Claude Code headless mode](https://code.claude.com/docs/en/headless) documents structured output and session resumption. [Claude Code Agent Teams](https://code.claude.com/docs/en/agent-teams) is a separate orchestration feature.

@@ -1,0 +1,1 @@
+{"mcpServers":{"swarm":{"command":"python","args":["/absolute/path/local-swarm/swarm.py","mcp","--owner-file","/absolute/private/path/coordinator.key"]}}}

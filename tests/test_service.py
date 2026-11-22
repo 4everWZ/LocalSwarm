@@ -1,0 +1,114 @@
+"""Exercise the real local HTTP and MCP surfaces with the mock runner."""
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from urllib.error import HTTPError
+from urllib.request import Request, build_opener, ProxyHandler
+
+from engine import Engine
+from runner import command, parse_result
+from swarm import Service, make_handler, mock_runner, remote
+from http.server import ThreadingHTTPServer
+
+
+class ServiceTest(unittest.TestCase):
+    def test_bridge_roles_replay_and_http(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            subprocess.run(["git", "init", "-q", name], check=True)
+            subprocess.run(["git", "-C", name, "-c", "user.name=Test", "-c",
+                            "user.email=test@example.invalid", "commit", "--allow-empty",
+                            "-m", "initial"], check=True, capture_output=True)
+            e = Engine(root / "board.db", root, mock_runner)
+            app = Service(e, "owner-secret", "view-secret", operator="operator-secret")
+            app.add_actor("worker-secret", "build")
+            server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(app))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            port = server.server_port
+            url = f"http://127.0.0.1:{port}"
+            http = build_opener(ProxyHandler({}))
+            try:
+                pending = remote(port, "owner-secret", "/rpc", {"name": "swarm_spawn", "args": {
+                    "name": "build", "role": "worker", "brief": "Build a local test fixture",
+                    "allowed_paths": ["README.md"],
+                }})
+                self.assertEqual(pending["name"], "build")
+                with self.assertRaisesRegex(RuntimeError, "coordinator"):
+                    remote(port, "worker-secret", "/rpc", {"name": "swarm_merge",
+                                                          "args": {"worker_name": "build"}})
+                with self.assertRaisesRegex(RuntimeError, "operator capability"):
+                    remote(port, "owner-secret", "/operator-merge", {})
+                with self.assertRaisesRegex(RuntimeError, "unknown argument"):
+                    remote(port, "worker-secret", "/rpc", {"name": "board_post", "args": {
+                        "actor": "coordinator", "content": "spoof",
+                    }})
+                for _ in range(100):
+                    e.tick()
+                    if any(x["status"] == "waiting" for x in e.read()):
+                        break
+                    time.sleep(.005)
+                self.assertEqual(e.members()[0]["session_id"], "mock-build")
+                with self.assertRaises(HTTPError) as exc:
+                    http.open(url + "/snapshot")
+                self.assertEqual(exc.exception.code, 403)
+                q = Request(url + "/snapshot", headers={"Cookie": "swarm_view=view-secret"})
+                with http.open(q) as response:
+                    snapshot = json.load(response)
+                self.assertNotIn("session_id", snapshot["members"][0])
+                self.assertNotIn("repo_path", snapshot["members"][0])
+                since = snapshot["events"][-1]["seq"]
+                remote(port, "owner-secret", "/rpc", {"name": "board_post", "args": {
+                    "mentions": ["@build"], "content": "Wake up",
+                }})
+                e.tick()
+                req = Request(url + f"/events?since={since}", headers={"Cookie": "swarm_view=view-secret"})
+                with http.open(req, timeout=3) as stream:
+                    self.assertEqual(stream.readline().strip(), f"id: {since + 1}".encode())
+                    self.assertIn(b"Wake up", stream.readline())
+                owner_file = root / "owner"
+                owner_file.write_text("owner-secret")
+                call = dict(jsonrpc="2.0", id=1, method="tools/list")
+                cli = subprocess.run([sys.executable, "swarm.py", "--port", str(port), "mcp",
+                                      "--owner-file", str(owner_file)], input=json.dumps(call) + "\n",
+                                     text=True, capture_output=True, check=True)
+                self.assertEqual(len(json.loads(cli.stdout)["result"]["tools"]), 7)
+            finally:
+                app.stop.set()
+                server.shutdown()
+                server.server_close()
+                thread.join()
+                e.close()
+
+    def test_provider_launch_flags_and_receipts(self):
+        sid = "70bc01ab-d74d-4c87-8178-14fb0a01cd03"
+        spec = {"actor":"reviewer", "role":"verifier", "backend":"codex", "repo_path":"/tmp/test",
+                "brief":"Review the local docs", "events":[], "allowed_paths":[], "session_id":sid}
+        args, prompt = command(spec, 7420)
+        self.assertIn("read-only", args)
+        self.assertEqual(args[args.index("exec") + 1], "resume")
+        self.assertEqual(args[-2:], [sid, "-"])
+        stdout = "\n".join(json.dumps(x) for x in [
+            {"type":"thread.started","thread_id":sid},
+            {"type":"item.completed","item":{"type":"agent_message","text":"done"}},
+            {"type":"turn.completed"},
+        ])
+        self.assertEqual(parse_result("codex", stdout, 0, sid)["content"], "done")
+        self.assertEqual(parse_result("codex", stdout, 1, sid)["status"], "failed")
+        spec["backend"] = "claude"
+        args, prompt = command(spec, 7420)
+        self.assertIn("Read,Glob,Grep", args)
+        self.assertNotIn("Bash", " ".join(args))
+        self.assertEqual(args[-2:], ["--resume", sid])
+        stdout = json.dumps({"type":"result","subtype":"success","session_id":sid,"result":"done"})
+        self.assertEqual(parse_result("claude", stdout, 0, sid)["content"], "done")
+        self.assertEqual(parse_result("claude", "{}", 0, sid)["status"], "failed")
+
+
+if __name__ == "__main__":
+    unittest.main()
