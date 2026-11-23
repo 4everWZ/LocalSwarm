@@ -64,8 +64,10 @@ class Engine:
                 self._db.execute("ALTER TABLE events ADD COLUMN source TEXT")
             if "turns" not in {r["name"] for r in self._db.execute("PRAGMA table_info(workers)")}:
                 self._db.execute("ALTER TABLE workers ADD COLUMN turns INTEGER NOT NULL DEFAULT 0")
-            if "reasoning_effort" not in {r["name"] for r in self._db.execute("PRAGMA table_info(workers)")}:
-                self._db.execute("ALTER TABLE workers ADD COLUMN reasoning_effort TEXT")
+            worker_columns = {r["name"] for r in self._db.execute("PRAGMA table_info(workers)")}
+            for column in ("reasoning_effort", "coordinator"):
+                if column not in worker_columns:
+                    self._db.execute(f"ALTER TABLE workers ADD COLUMN {column} TEXT")
             with self._txn():
                 for row in self._db.execute("SELECT name,active FROM workers WHERE active IS NOT NULL").fetchall():
                     self._insert(row["name"], [], f"Interrupted run {row['active']}; claimed events will not be replayed.", "interrupted")
@@ -106,6 +108,8 @@ class Engine:
     def _worker(row):
         data = dict(row)
         data["allowed_paths"] = json.loads(data["allowed_paths"])
+        if data["coordinator"] is not None:
+            data["coordinator"] = json.loads(data["coordinator"])
         return data
 
     def _insert(self, actor, mentions, content, status, source="scheduler"):
@@ -114,7 +118,7 @@ class Engine:
                                  datetime.now(timezone.utc).isoformat(), source)).lastrowid
 
     def spawn(self, name, role, brief, allowed_paths, backend, model,
-              review_worker=None, review_revision=None, reasoning_effort=None):
+              review_worker=None, review_revision=None, reasoning_effort=None, coordinator=None):
         if (not isinstance(name, str) or name.lower() in {"operator", "coordinator"}
                 or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,63}", name)):
             raise ValueError("invalid worker name")
@@ -143,9 +147,10 @@ class Engine:
             with self._txn():
                 cursor = self._db.execute("SELECT coalesce(max(seq),0) FROM events").fetchone()[0]
                 self._db.execute("""INSERT INTO workers
-                    (name, role, brief, allowed_paths, backend, model, repo_path, base_revision, cursor, reasoning_effort)
-                    VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                    (name, role, brief, json.dumps(allowed), backend, model, str(location), base, cursor, reasoning_effort))
+                    (name, role, brief, allowed_paths, backend, model, repo_path, base_revision, cursor,
+                     reasoning_effort, coordinator) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                    (name, role, brief, json.dumps(allowed), backend, model, str(location), base, cursor,
+                     reasoning_effort, json.dumps(coordinator) if coordinator is not None else None))
                 self._insert("operator", [name], brief, "spawned")
             return self._get(name)
 
@@ -205,6 +210,13 @@ class Engine:
                 ORDER BY seq DESC LIMIT 1""", (name, name)).fetchone()
             return bool(state and state[0] == "waiting")
 
+    def blocked_reason(self, name):
+        with self._lock:
+            event = self._db.execute("""SELECT content FROM events WHERE actor=? AND status='blocked'
+                AND seq > (SELECT coalesce(max(seq),0) FROM events WHERE actor=? AND status='running')
+                ORDER BY seq DESC LIMIT 1""", (name, name)).fetchone()
+            return event["content"] if event else None
+
     def _finish(self, worker, run_id, future):
         try:
             result = future.result() or {}
@@ -234,7 +246,10 @@ class Engine:
             update = self._db.execute("UPDATE workers SET active=NULL,session_id=coalesce(?,session_id) WHERE name=? AND active=?",
                                       (session, worker, run_id))
             if update.rowcount:
-                self._insert(worker, list(mentions), content or "", status)
+                if status == "blocked":
+                    self._insert(worker, ["coordinator"], content or "Worker dispatch blocked", status, "board")
+                else:
+                    self._insert(worker, list(mentions), content or "", status)
 
     def tick(self):
         """Reap finished futures and launch pending actors without waiting for their results."""

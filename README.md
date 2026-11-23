@@ -75,11 +75,10 @@ Try: “Use the Swarm MCP tools to split this change into independent tasks, giv
 
 ### Run actual models
 
-The backend is `mock` unless you select another one. For a Codex coordinator, add these options and use the active main chat's model and effort:
+The backend is `mock` unless you select another one. For a Codex coordinator, add a launcher to the service command.
 
 ```bash
---coordinator-model gpt-6.2-sol --coordinator-reasoning-effort high \
-  --codex-launcher /absolute/path/to/isolated-codex-launcher
+--codex-launcher /absolute/path/to/isolated-codex-launcher
 ```
 
 To use Claude Code, start a separate service with `--claude-launcher` and its own state directory. The Codex budget does not define a cross-provider model ranking.
@@ -92,22 +91,28 @@ With a native Codex installation and working MXC sandbox, use the [Windows launc
 $env:LOCALSWARM_CODEX_EXE = (Get-Command codex.exe).Source
 python swarm.py serve --repo C:/path/to/repo --db "$env:LOCALAPPDATA/LocalSwarm/project/board.db" `
   --owner-file "$env:LOCALAPPDATA/LocalSwarm/project/coordinator.key" `
-  --coordinator-model gpt-6.2-sol --coordinator-reasoning-effort high `
   --codex-launcher examples/codex/windows_launcher.py
 ```
 
 ### Model and reasoning budgets
 
-`swarm_policy` reports the service ceiling. If an active session uses lower settings, include its `coordinator` object in `swarm_plan` or `swarm_spawn`. Set `task_level` according to the task. With a Sol High coordinator the defaults are:
+For each live Codex `swarm_plan` or `swarm_spawn`, pass `coordinator.model` and `coordinator.reasoning_effort` from the active chat. Call `swarm_policy` with the same `coordinator` to preview the routes before submitting. Starting the service with both `--coordinator-model` and `--coordinator-reasoning-effort` keeps the legacy fixed ceiling and supplies the default coordinator for calls that omit it. Omit those startup flags to let each new plan follow the current chat.
 
-| Task level | Worker default |
-| --- | --- |
-| `routine` | Terra Medium |
-| `standard` | Terra High |
-| `demanding` | Terra Extra High |
-| `complex` | Sol High |
+| Task level | Target effort | Astra Medium coordinator | Sol High coordinator |
+| --- | --- | --- | --- |
+| `routine` or `standard` | Medium | Sol Medium | Terra Medium |
+| `demanding` | High | Sol High | Terra High |
+| `complex` | Extra High | Sol High | Terra Extra High |
 
-Same-tier workers may use up to the coordinator's effort, with Max as the worker limit. Lower tiers may use one effort step above the coordinator, capped at Extra High. For example, Sol High can delegate to Terra Extra High or Sol High. Use `model` and `reasoning_effort` for explicit choices, and the corresponding `verifier_` fields to override verification. Use `low` for Light and `xhigh` for Extra High. Effort selects a provider reasoning setting. Actual token use depends on the turn.
+Automatic routing prefers the nearest lower tier with a model and supported effort available. If no eligible lower tier is available, the service uses the coordinator's model at a supported effort. `model_tier: "coordinator"` requests the exact active model directly. Both choices use the task's target effort. Same-tier effort is capped by the active coordinator. Lower tiers may go one step above that effort, up to Extra High. Max requires an explicit same-tier choice and provider support. Ultra is reserved for the coordinator.
+
+Use `model` and `reasoning_effort` for explicit choices. For a verifier, use `verifier_model`, `verifier_reasoning_effort`, or `verifier_model_tier`. The service rejects unsupported or over-budget explicit choices. Use `low` for Light and `xhigh` for Extra High. Actual token use depends on the turn.
+
+The [bundled routing policy](routing-policy.json) defines model tiers. Use `--routing-policy PATH` to supply your own JSON policy with `tiers` ordered from lightest to strongest. Each tier has a `name` and an ordered `models` list of model IDs or case-sensitive glob patterns. Earlier entries take priority within a tier. Use ordered exact model IDs to define the relative capability of variants in the same tier. A model outside the configured tiers can still delegate to itself when it is available.
+
+The service uses the authenticated [Codex model catalog](https://learn.chatgpt.com/docs/app-server#list-models-modellist) for available models and supported efforts. Run the catalog and worker under the same provider account. `--codex-executable PATH` sets the catalog executable. The service otherwise uses `LOCALSWARM_CODEX_EXE` on Windows when present, then searches `PATH`. The bundled Windows launcher uses the same executable for worker turns.
+
+Plans and workers keep the coordinator budget and assignments saved at submission. Later changes in the active chat affect subsequent submissions. A resumed worker or retried task uses its pinned route. If that route becomes unavailable, the coordinator receives a blocker. To run records created before budget snapshots, start the service with the applicable legacy fixed ceiling.
 
 ### Board communication
 
@@ -115,7 +120,7 @@ Workers use `board_post` with `@name` to hand work between peers. `@plan:<plan-i
 
 ### Plan, verify, integrate
 
-Write the task list yourself or ask the interactive coordinator to propose it. Give each task its own ID, implementation role, backend and model, allowed paths, prerequisites, and a specific acceptance criterion. Use dependencies where a task needs another task's code in the target checkout.
+Write the task list yourself or ask the interactive coordinator to propose it. Give each task its own ID, implementation role, backend, allowed paths, prerequisites, and a specific acceptance criterion. Use dependencies where a task needs another task's code in the target checkout.
 
 Submit the task list with `swarm_plan`; use `swarm_status` to read the plan and its evidence. For example, the `swarm_plan` arguments for one documentation task are:
 
@@ -123,6 +128,7 @@ Submit the task list with `swarm_plan`; use `swarm_status` to read the plan and 
 {
   "plan_id": "docs",
   "goal": "Document startup",
+  "coordinator": {"model": "gpt-6.2-astra", "reasoning_effort": "medium"},
   "tasks": [
     {
       "id": "startup",

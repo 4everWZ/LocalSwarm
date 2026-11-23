@@ -1,0 +1,8 @@
+{
+  "tiers": [
+    {"name": "luna", "models": ["gpt-6-luna", "gpt-*-luna"]},
+    {"name": "terra", "models": ["gpt-6.1-terra", "gpt-*-terra"]},
+    {"name": "sol", "models": ["gpt-6.2-sol", "gpt-6.1-sol", "gpt-6-sol", "gpt-*-sol"]},
+    {"name": "astra", "models": ["gpt-6.2-astra", "gpt-6-astra", "gpt-*-astra"]}
+  ]
+}

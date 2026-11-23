@@ -18,7 +18,9 @@ A plan is a persisted directed acyclic graph, specified by the operator or propo
 
 Implementation and verification are separate phases of each attempt. An implementation worker reports readiness for its exact commit. A verifier receives a worktree pinned to that commit and reports evidence with a pass or rework verdict. Rework can schedule a fresh attempt within the task's limit. A passing report and an integrated commit are separate states. Free-text board posts cannot satisfy a task gate.
 
-The service validates Codex task routing against an operator-configured ceiling and an optional per-request coordinator budget. It saves selected model and effort with plan definitions and worker records. Dispatch rechecks the current service ceiling, including after restart, and always passes the resolved values explicitly to Codex. The default model hierarchy and effort tradeoffs are LocalSwarm policy. OpenAI documents the provider settings separately.
+Codex routing uses the submitting chat's coordinator budget, the configured model tiers, and the authenticated Codex `model/list` capabilities. The operator can replace the tier policy. A service started with the legacy fixed coordinator flags enforces that additional ceiling. `swarm_policy` previews routes for a supplied coordinator without creating worktrees.
+
+The service saves the coordinator budget and resolved model and effort for each role at submission. Retries, restarts, and addressed turns use those saved assignments. Dispatch checks whether the saved pair is still available and reports a blocker when it cannot be used. A new coordinator setting applies to subsequent submissions. Legacy records without a coordinator budget need the legacy service flags to dispatch.
 
 ## Provider sessions and Git
 
@@ -34,5 +36,5 @@ On Windows, a CLI that emits `turn.completed` and stalls while exiting is reaped
 
 - [Google Antigravity Swarm](https://antigravity.google/docs/swarm/) inspired the coordinator, worker, verifier, shared board, and replay of public mentions. LocalSwarm makes its own persistence and worker lifecycle choices.
 - [Google Antigravity Orchestrator](https://antigravity.google/docs/models/#orchestrator) describes planner and executor handoffs. [Codex subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) and [Codex models](https://learn.chatgpt.com/docs/models) document keeping execution details out of the main chat and setting model and reasoning effort.
-- [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode) documents JSONL events and resuming by session ID. The [Codex App Server](https://learn.chatgpt.com/docs/app-server) offers a separate interface for ongoing turn control; LocalSwarm's adapter uses the CLI.
+- [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode) documents JSONL events and resuming by session ID. The [Codex App Server model list](https://learn.chatgpt.com/docs/app-server#list-models-modellist) supplies model and effort capabilities. LocalSwarm runs worker turns through the CLI.
 - [Claude Code headless mode](https://code.claude.com/docs/en/headless) documents structured output and session resumption. [Claude Code Agent Teams](https://code.claude.com/docs/en/agent-teams) is a separate orchestration feature.

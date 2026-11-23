@@ -15,7 +15,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-from budget import Budget, TASK_LEVELS, effort_level
+from budget import AUTO_MODELS, Budget, MODEL_TIERS, RoutingPolicy, TASK_LEVELS
 
 
 def encode(obj):
@@ -31,10 +31,12 @@ STR = {"type": "string", "maxLength": 12000}
 STRS = {"type": "array", "maxItems": 50, "items": STR}
 COORDINATOR = schema({"model": STR, "reasoning_effort": STR}, ("model", "reasoning_effort"))
 TASK_LEVEL = {"enum": list(TASK_LEVELS)}
+MODEL_TIER = {"enum": list(MODEL_TIERS)}
 TASK = schema({"id": STR, "dependencies": STRS, "role": STR,
                "backend": {"enum": ["mock", "codex", "claude"]}, "model": STR,
                "allowed_paths": STRS, "criterion": STR,
-               "task_level": TASK_LEVEL, "reasoning_effort": STR, "verifier_reasoning_effort": STR,
+               "task_level": TASK_LEVEL, "model_tier": MODEL_TIER, "verifier_model_tier": MODEL_TIER,
+               "reasoning_effort": STR, "verifier_reasoning_effort": STR,
                "max_attempts": {"type": "integer", "minimum": 1, "maximum": 5},
                "verifier_backend": {"enum": ["mock", "codex", "claude"]}, "verifier_model": STR},
               ("id", "dependencies", "role", "backend", "allowed_paths", "criterion"))
@@ -45,7 +47,8 @@ TOOLS = {
                           ("plan_id", "goal", "tasks"))),
     "swarm_status": ("Read one plan and its task evidence, or all plans.",
                      schema({"plan_id": STR, "compact": {"type": "boolean"}})),
-    "swarm_policy": ("Read the service's configured Codex coordinator ceiling and task levels.", schema({})),
+    "swarm_policy": ("Read the optional service ceiling or preview routes for the active Codex coordinator.",
+                     schema({"coordinator": COORDINATOR})),
     "swarm_inbox": ("Read a bounded page of board messages addressed to you, excluding routine run output.",
                     schema({"since_seq": {"type": "integer", "minimum": 0},
                             "limit": {"type": "integer", "minimum": 1, "maximum": 50}})),
@@ -57,7 +60,8 @@ TOOLS = {
                     schema({"name": STR, "role": {"enum": ["worker", "verifier"]},
                             "brief": STR, "allowed_paths": STRS,
                             "backend": {"enum": ["mock", "codex", "claude"]}, "model": STR,
-                            "task_level": TASK_LEVEL, "reasoning_effort": STR, "coordinator": COORDINATOR,
+                            "task_level": TASK_LEVEL, "model_tier": MODEL_TIER, "reasoning_effort": STR,
+                            "coordinator": COORDINATOR,
                             "review_worker": STR, "review_revision": STR},
                            ("name", "role", "brief", "allowed_paths"))),
     "board_post": ("Post as the authenticated actor. Mention @name, @coordinator or @plan:<plan-id>.",
@@ -103,11 +107,13 @@ def validate(data, spec):
 
 class Service:
     def __init__(self, engine, owner, browser, backends=("mock",), operator=None, orchestrator=None,
-                 budget=None):
+                 budget=None, policy=None, catalog=None):
         self.engine, self.orchestrator = engine, orchestrator
         self.owner, self.browser, self.operator = owner, browser, operator
         self.backends = frozenset(backends)
         self.budget = budget
+        self.catalog = catalog
+        self.policy = policy if policy is not None or catalog is None else RoutingPolicy.from_file()
         self.actors = {}
         self.lock = threading.RLock()
         self.actor_lock = threading.Lock()
@@ -131,41 +137,135 @@ class Service:
         supplied = args.get("coordinator")
         if supplied is None:
             return self.budget
-        if self.budget is None:
-            raise ValueError("no Codex coordinator budget configured on this service")
-        requested = Budget(supplied["model"], supplied["reasoning_effort"])
-        self.budget.maximum(requested.model)
-        if effort_level(requested.effort) > effort_level(self.budget.effort):
-            raise ValueError("session coordinator effort exceeds the service ceiling")
-        return requested
+        return Budget(supplied["model"], supplied["reasoning_effort"])
 
-    def route(self, backend, model, effort, level, coordinator):
+    @staticmethod
+    def budget_record(budget):
+        return {"model": budget.model, "reasoning_effort": budget.effort} if budget else None
+
+    def codex_models(self, coordinator, explicit=()):
+        if coordinator is None:
+            raise ValueError("Codex workers require the active coordinator model and reasoning effort")
+        if self.catalog is None:
+            raise ValueError("Codex model catalog is not configured on this service")
+        required = [coordinator.model, *(model for model in explicit if model not in AUTO_MODELS)]
+        models = self.catalog.models(required=required)
+        self.policy.validate_coordinator(coordinator, models, ceiling=self.budget)
+        return models
+
+    def route(self, backend, model, effort, level, tier, coordinator, models):
         if backend not in self.backends:
             raise ValueError("backend not enabled by the operator")
         if backend == "codex":
-            if coordinator is None:
-                raise ValueError("Codex workers require a configured coordinator budget")
-            return coordinator.select(level, model, effort, ceiling=self.budget)
-        if effort is not None or (backend == "claude" and coordinator is not None):
+            return self.policy.select(coordinator, models, level, model, effort,
+                                      model_tier=tier, ceiling=self.budget)
+        if effort is not None or tier != "auto" or (backend == "claude" and coordinator is not None):
             raise ValueError("Codex reasoning budgets apply only to Codex workers")
         return model, None
 
-    def plan_tasks(self, tasks, coordinator):
+    def plan_tasks(self, tasks, coordinator, models):
         routed = []
         for source in tasks:
             task = dict(source)
             task.setdefault("model", "default")
             task.setdefault("verifier_backend", task["backend"])
-            task.setdefault("verifier_model", task["model"])
+            task.setdefault("verifier_model", task["model"] if task["verifier_backend"] == task["backend"]
+                            and task.get("verifier_model_tier", "auto") == "auto" else "default")
             level = task.get("task_level", "standard")
             for prefix in ("", "verifier_"):
                 model, effort = self.route(task[prefix + "backend"], task[prefix + "model"],
-                                           task.get(prefix + "reasoning_effort"), level, coordinator)
+                                           task.get(prefix + "reasoning_effort"), level,
+                                           task.get(prefix + "model_tier", "auto"), coordinator, models)
                 task[prefix + "model"] = model
                 if effort is not None:
                     task[prefix + "reasoning_effort"] = effort
             routed.append(task)
         return routed
+
+    def submit_plan(self, args):
+        if self.orchestrator is None:
+            raise ValueError("plan service unavailable")
+        tasks = args["tasks"]
+        roles = [(task["backend"], task.get("model", "default")) for task in tasks]
+        roles.extend((task.get("verifier_backend", task["backend"]), task.get("verifier_model", "default"))
+                     for task in tasks)
+        if any(backend not in self.backends for backend, _ in roles):
+            raise ValueError("backend not enabled by the operator")
+        codex = [model for backend, model in roles if backend == "codex"]
+        coordinator = self.coordinator_budget(args) if codex else None
+        snapshot = self.budget_record(coordinator)
+        request = sorted(({**task, "dependencies": sorted(task["dependencies"]),
+                           "allowed_paths": sorted(task["allowed_paths"])} for task in tasks), key=lambda task: task["id"])
+        plan_id, goal = args["plan_id"], args["goal"]
+        replay = self.orchestrator.replay(plan_id, goal, request, snapshot)
+        if replay is not None:
+            return replay
+        models = self.codex_models(coordinator, codex) if codex else None
+        routed = self.plan_tasks(tasks, coordinator, models)
+        with self.lock:
+            replay = self.orchestrator.replay(plan_id, goal, request, snapshot)
+            if replay is not None:
+                return replay
+            result = self.orchestrator.create(plan_id, routed, goal, coordinator=snapshot, request=request)
+            self.engine.post("coordinator", [], f"Plan {plan_id} submitted", "plan")
+            return result
+
+    def spawn_worker(self, args):
+        if args["name"].startswith("plan-"):
+            raise ValueError("member names beginning with plan- are reserved")
+        backend = args.get("backend", "mock")
+        if backend not in self.backends:
+            raise ValueError("backend not enabled by the operator")
+        model = args.get("model", "")
+        coordinator = self.coordinator_budget(args) if backend == "codex" else None
+        models = self.codex_models(coordinator, (model,)) if backend == "codex" else None
+        model, effort = self.route(backend, model, args.get("reasoning_effort"),
+                                   args.get("task_level", "standard"), args.get("model_tier", "auto"), coordinator, models)
+        with self.lock:
+            return self.engine.spawn(args["name"], args["role"], args["brief"], args["allowed_paths"], backend, model,
+                                     reasoning_effort=effort, coordinator=self.budget_record(coordinator),
+                                     review_worker=args.get("review_worker"), review_revision=args.get("review_revision"))
+
+    def preview_policy(self, args):
+        coordinator = self.coordinator_budget(args)
+        result = {"coordinator": self.budget_record(coordinator), "ceiling": self.budget_record(self.budget),
+                  "task_levels": TASK_LEVELS, "backends": sorted(self.backends)}
+        if "coordinator" in args:
+            models = self.codex_models(coordinator)
+            result["preview"] = preview = {}
+            for level in TASK_LEVELS:
+                preview[level] = {}
+                for tier in MODEL_TIERS:
+                    try:
+                        model, effort = self.route("codex", "default", None, level, tier, coordinator, models)
+                    except ValueError as exc:
+                        preview[level][tier] = {"blocked": str(exc)}
+                    else:
+                        preview[level][tier] = {"model": model, "reasoning_effort": effort}
+        return result
+
+    def worker_assignment(self, req):
+        """Use a saved assignment without rerouting when the active coordinator changes."""
+        if self.catalog is None or "codex" not in self.backends:
+            raise ValueError("Enable a Codex launcher and model catalog to run this saved assignment")
+        model, effort = req["model"], req.get("reasoning_effort")
+        snapshot = req.get("coordinator")
+        if snapshot is None:
+            if self.budget is None:
+                raise ValueError("legacy Codex assignment has no saved coordinator budget. "
+                                 "Use the legacy startup ceiling or submit a new assignment")
+            models = self.codex_models(self.budget, (model,))
+            return self.route("codex", model, effort, "standard", "auto", self.budget, models)
+        if self.budget is not None:
+            models = self.codex_models(self.budget, (model,))
+            # A fixed service ceiling continues to limit assignments after restart.
+            self.route("codex", model, effort, "standard", "auto", self.budget, models)
+        else:
+            models = self.catalog.models(required=(model,))
+        if model not in models or effort not in models[model]:
+            raise ValueError(f"Saved Codex assignment {model!r} at {effort!r} is unavailable. "
+                             "Restore provider availability or submit a new assignment")
+        return model, effort
 
     def mention_targets(self, mentions):
         targets = []
@@ -185,21 +285,19 @@ class Service:
         validate(args, TOOLS[name][1])
         if name in ("swarm_spawn", "swarm_merge", "swarm_plan") and actor != "coordinator":
             raise PermissionError("coordinator action only")
+        if name == "swarm_plan":
+            return self.submit_plan(args)
+        if name == "swarm_spawn":
+            return self.spawn_worker(args)
+        if name == "swarm_policy":
+            return self.preview_policy(args)
         with self.lock:
-            if name in ("swarm_plan", "swarm_status", "swarm_report") and self.orchestrator is None:
+            if name in ("swarm_status", "swarm_report") and self.orchestrator is None:
                 raise ValueError("plan service unavailable")
-            if name == "swarm_plan":
-                tasks = self.plan_tasks(args["tasks"], self.coordinator_budget(args))
-                result = self.orchestrator.create(args["plan_id"], tasks, args["goal"])
-                self.engine.post("coordinator", [], f"Plan {args['plan_id']} submitted", "plan")
-                return result
             if name == "swarm_status":
                 if args.get("plan_id"):
                     return self.orchestrator.summary(args["plan_id"], compact=args.get("compact", False))
                 return self.orchestrator.plans()
-            if name == "swarm_policy":
-                return {"coordinator": {"model": self.budget.model, "reasoning_effort": self.budget.effort}
-                        if self.budget else None, "task_levels": TASK_LEVELS, "backends": sorted(self.backends)}
             if name == "swarm_inbox":
                 return self.engine.inbox(actor, args.get("since_seq", 0), args.get("limit", 20))
             if name == "swarm_report":
@@ -212,16 +310,6 @@ class Service:
                 if not result.get("duplicate"):
                     self.engine.post(actor, [], f"Plan {args['plan_id']}/{args['task_id']}: {args['verdict']}", "plan")
                 return {**result, "revision": revision}
-            if name == "swarm_spawn":
-                if args["name"].startswith("plan-"):
-                    raise ValueError("member names beginning with plan- are reserved")
-                backend = args.get("backend", "mock")
-                model, effort = self.route(backend, args.get("model", ""), args.get("reasoning_effort"),
-                                           args.get("task_level", "standard"), self.coordinator_budget(args))
-                return self.engine.spawn(args["name"], args["role"], args["brief"],
-                                         args["allowed_paths"], backend, model, reasoning_effort=effort,
-                                         review_worker=args.get("review_worker"),
-                                         review_revision=args.get("review_revision"))
             if name == "board_post":
                 if actor == "coordinator" and args.get("status") is not None:
                     raise ValueError("coordinator has no scheduling status")
@@ -456,6 +544,8 @@ def main():
     start.add_argument("--claude-launcher", type=Path)
     start.add_argument("--coordinator-model")
     start.add_argument("--coordinator-reasoning-effort")
+    start.add_argument("--routing-policy", type=Path)
+    start.add_argument("--codex-executable", type=Path)
     m = s.add_parser("mcp")
     m.add_argument("--owner-file")
     g = s.add_parser("merge")
@@ -474,19 +564,26 @@ def main():
         print(encode(remote(a.port, getpass.getpass("Operator code: "), "/operator-merge",
                             {"worker": a.worker, "revision": a.revision, "base_revision": a.base_revision})).decode())
     else:
+        from catalog import CodexCatalog, resolve_codex
         from engine import Engine
         from orchestrator import Orchestrator
         state = Path(a.db).expanduser().resolve()
         os.umask(0o077)
         state.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        if bool(a.coordinator_model) != bool(a.coordinator_reasoning_effort) or (a.codex_launcher and not a.coordinator_model):
-            p.error("Codex requires both --coordinator-model and --coordinator-reasoning-effort")
+        if bool(a.coordinator_model) != bool(a.coordinator_reasoning_effort):
+            p.error("the optional fixed ceiling requires both --coordinator-model and --coordinator-reasoning-effort")
         try:
             budget = Budget(a.coordinator_model, a.coordinator_reasoning_effort) if a.coordinator_model else None
-        except ValueError as exc:
+            policy = RoutingPolicy.from_file(a.routing_policy) if a.codex_launcher else None
+            executable = resolve_codex(a.codex_executable) if a.codex_launcher else None
+            catalog = CodexCatalog(executable) if executable else None
+        except (OSError, ValueError) as exc:
             p.error(str(exc))
-        if budget is not None and a.claude_launcher:
+        if a.claude_launcher and (budget is not None or a.codex_launcher):
             p.error("use a separate service for Claude workers without a Codex model budget")
+        if executable is not None and os.name == "nt":
+            # The bundled launcher uses the same executable for worker turns.
+            os.environ["LOCALSWARM_CODEX_EXE"] = str(executable)
         launchers = {name: launcher.resolve(strict=True) for name, launcher in
                      {"codex": a.codex_launcher, "claude": a.claude_launcher}.items() if launcher}
         for launcher in launchers.values():
@@ -497,9 +594,14 @@ def main():
         def run(req):
             if req["backend"] == "mock":
                 return mock_runner(req)
+            if req["backend"] not in launchers:
+                return {"status": "blocked", "content": f"Enable the {req['backend']} launcher to run this saved assignment"}
             from runner import run_with_launcher
             if req["backend"] == "codex":
-                model, effort = app.route("codex", req["model"], req.get("reasoning_effort"), "standard", budget)
+                try:
+                    model, effort = app.worker_assignment(req)
+                except ValueError as exc:
+                    return {"status": "blocked", "content": str(exc)}
                 req = {**req, "model": model, "reasoning_effort": effort}
             elif budget is not None:
                 raise ValueError("Claude workers cannot run under a Codex budget")
@@ -507,7 +609,8 @@ def main():
         eng = Engine(state, Path(a.repo).resolve(), run)
         app = Service(eng, get_owner(a.owner_file, True), secrets.token_urlsafe(32),
                       backends=("mock", *launchers), operator=secrets.token_urlsafe(24),
-                      orchestrator=Orchestrator(state.with_suffix(state.suffix + ".plans"), eng), budget=budget)
+                      orchestrator=Orchestrator(state.with_suffix(state.suffix + ".plans"), eng), budget=budget,
+                      policy=policy, catalog=catalog)
         server = ThreadingHTTPServer(("127.0.0.1", a.port), make_handler(app))
         thread = threading.Thread(target=app.schedule, daemon=True)
         thread.start()

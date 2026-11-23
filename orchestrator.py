@@ -35,6 +35,10 @@ class Orchestrator:
                 evidence TEXT NOT NULL, PRIMARY KEY(plan_id,id,attempt,actor)
             );
         """)
+        plan_columns = {row["name"] for row in self._db.execute("PRAGMA table_info(plans)")}
+        for column in ("coordinator", "request"):
+            if column not in plan_columns:
+                self._db.execute(f"ALTER TABLE plans ADD COLUMN {column} TEXT")
 
     @contextmanager
     def _transaction(self):
@@ -56,7 +60,7 @@ class Orchestrator:
             raise ValueError("plan requires 1–64 tasks")
         required = {"id", "dependencies", "role", "backend", "model", "allowed_paths", "criterion"}
         optional = {"max_attempts", "verifier_backend", "verifier_model", "task_level",
-                    "reasoning_effort", "verifier_reasoning_effort"}
+                    "reasoning_effort", "verifier_reasoning_effort", "model_tier", "verifier_model_tier"}
         spec = {}
         for item in tasks:
             if not isinstance(item, dict) or not required <= item.keys() or item.keys() - required - optional:
@@ -101,7 +105,16 @@ class Orchestrator:
             resolved.update(batch)
         return order
 
-    def create(self, plan_id, tasks, goal=""):
+    def replay(self, plan_id, goal, request, coordinator):
+        with self._lock:
+            row = self._db.execute("SELECT goal, request, coordinator FROM plans WHERE plan_id=?", (plan_id,)).fetchone()
+            if row is None or row["request"] is None:
+                return None
+            if (row["goal"], json.loads(row["request"]), json.loads(row["coordinator"] or "null")) != (goal, request, coordinator):
+                raise ValueError("plan already exists with a different definition")
+            return self.summary(plan_id)
+
+    def create(self, plan_id, tasks, goal="", *, coordinator=None, request=None):
         if not self._id(plan_id) or not isinstance(goal, str) or len(goal) > 8192:
             raise ValueError("invalid plan ID or goal")
         spec = self._validate(tasks)
@@ -112,7 +125,9 @@ class Orchestrator:
                 if (existing["goal"], existing["definition"]) != (goal, definition):
                     raise ValueError("plan already exists with a different definition")
             else:
-                self._db.execute("INSERT INTO plans VALUES(?,?,?)", (plan_id, goal, definition))
+                self._db.execute("INSERT INTO plans (plan_id, goal, definition, coordinator, request) VALUES(?,?,?,?,?)",
+                                 (plan_id, goal, definition, json.dumps(coordinator) if coordinator is not None else None,
+                                  json.dumps(request) if request is not None else None))
                 self._db.executemany("INSERT INTO tasks VALUES(?,?,'pending',1,NULL,NULL,NULL,NULL,NULL)",
                                      [(plan_id, t["id"]) for t in spec])
             return self.summary(plan_id)
@@ -186,7 +201,8 @@ class Orchestrator:
             else:
                 state = "waiting_for_integration"
             goal = plan["goal"][:600] if compact else plan["goal"]
-            return {"plan_id": plan_id, "goal": goal, "status": state, "tasks": tasks}
+            return {"plan_id": plan_id, "goal": goal, "status": state, "tasks": tasks,
+                    "coordinator": json.loads(plan["coordinator"] or "null")}
 
     def plans(self):
         with self._lock:
@@ -298,6 +314,7 @@ class Orchestrator:
             changed = []
             for (plan_id,) in self._db.execute("SELECT plan_id FROM plans ORDER BY plan_id").fetchall():
                 plan, spec, rows = self._plan(plan_id)
+                coordinator = json.loads(plan["coordinator"] or "null")
                 for t in spec:
                     r = rows[t["id"]]
                     before = (r["status"], r["attempt"])
@@ -314,13 +331,18 @@ class Orchestrator:
                                 if worker not in members:
                                     members[worker] = self.engine.spawn(worker, t["role"], self._brief(plan, t, r),
                                                                         t["allowed_paths"], t["backend"], t["model"],
-                                                                        reasoning_effort=t.get("reasoning_effort"))
+                                                                        reasoning_effort=t.get("reasoning_effort"),
+                                                                        coordinator=coordinator if t["backend"] == "codex" else None)
                                 self._change(r, status="implementing")
                         elif r["status"] in ("implementing", "verifying"):
                             role_actor = worker if r["status"] == "implementing" else verifier
                             m = self._ready_member(role_actor, members)
                             if m.get("turns", 0) and not m["active"] and not self.engine.awaiting_reply(role_actor):
-                                self._retry(t, r, f"{role_actor} exited without a structured report")
+                                reason = self.engine.blocked_reason(role_actor)
+                                if reason:
+                                    self._change(r, status="blocked", evidence=reason)
+                                else:
+                                    self._retry(t, r, f"{role_actor} exited without a structured report")
                         elif r["status"] == "ready_for_verification":
                             m = self._ready_member(worker, members)
                             if not m["active"]:
@@ -331,7 +353,8 @@ class Orchestrator:
                                         members[verifier] = self.engine.spawn(verifier, "verifier", self._brief(plan, t, r, True),
                                                                              [], t["verifier_backend"], t["verifier_model"],
                                                                              review_worker=worker, review_revision=r["revision"],
-                                                                             reasoning_effort=t.get("verifier_reasoning_effort"))
+                                                                             reasoning_effort=t.get("verifier_reasoning_effort"),
+                                                                             coordinator=coordinator if t["verifier_backend"] == "codex" else None)
                                     elif members[verifier]["base_revision"] != r["revision"]:
                                         raise ValueError("recovered verifier is not pinned to the reported revision")
                                     self._change(r, status="verifying")
