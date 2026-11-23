@@ -1,3 +1,6 @@
 [mcp_servers.swarm]
 command = "python"
 args = ["/absolute/path/local-swarm/swarm.py", "mcp", "--owner-file", "/absolute/private/path/coordinator.key"]
+enabled_tools = ["swarm_policy", "swarm_plan", "swarm_status", "swarm_inbox", "swarm_spawn", "board_post", "board_read", "swarm_merge"]
+# This project-scoped entry points to the intended repository's loopback service.
+default_tools_approval_mode = "approve"

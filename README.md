@@ -8,7 +8,7 @@ Run a team of coding agents on your machine and see what each one did. Keep your
 
 ## Quickstart
 
-You'll need Python 3.10+ and Git on Linux, macOS, or Windows through WSL. No Python packages or model credentials are required for the demo.
+You'll need Python 3.10+ and Git on Linux, macOS, or native Windows. No Python packages or model credentials are required for the demo.
 
 From the LocalSwarm checkout, start a service against a disposable Git repository:
 
@@ -41,9 +41,30 @@ JSONL
 
 The mock backend posts a receipt without editing the target repository. Switch to **Graph** and scrub the timeline to see when the mention appeared.
 
+### Windows PowerShell
+
+From the checkout, run:
+
+```powershell
+$demo = Join-Path $env:LOCALAPPDATA ("LocalSwarm-demo-" + [guid]::NewGuid().ToString('N'))
+git init -q "$demo/repo"
+git -C "$demo/repo" -c user.name=Demo -c user.email=demo@example.invalid commit --allow-empty -qm initial
+Write-Output $demo
+python swarm.py serve --repo "$demo/repo" --db "$demo/state/board.db" --owner-file "$demo/state/coordinator.key"
+```
+
+Open the printed board URL. In a second PowerShell terminal, set `$demo` to the printed directory and run:
+
+```powershell
+'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"swarm_spawn","arguments":{"name":"builder","role":"worker","brief":"Review the demo repository","allowed_paths":["README.md"]}}}' |
+  python swarm.py mcp --owner-file "$demo/state/coordinator.key"
+'{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"board_post","arguments":{"mentions":["@builder"],"content":"Summarize what you would inspect next."}}}' |
+  python swarm.py mcp --owner-file "$demo/state/coordinator.key"
+```
+
 ## Connect an interactive coordinator
 
-Start the service with your target Git checkout and a private state directory **outside** that checkout. The service stays running while your client connects over stdio MCP. Use absolute paths in the client config; replace the sample `python` command with `python3` or your interpreter's absolute path if needed.
+Start the service with your target Git checkout and a private state directory **outside** that checkout. On Windows use a per-user directory such as `%LOCALAPPDATA%\LocalSwarm`, with ACLs that exclude other worker identities. The service stays running while your client connects over stdio MCP. Use absolute paths in the client config. Windows paths can use forward slashes inside TOML strings.
 
 | Client | Configuration | Optional shortcut |
 | --- | --- | --- |
@@ -54,14 +75,43 @@ Try: “Use the Swarm MCP tools to split this change into independent tasks, giv
 
 ### Run actual models
 
-The backend is `mock` unless you select another one. To make `codex` or `claude` available to workers, add one or both of these options to the service command:
+The backend is `mock` unless you select another one. For a Codex coordinator, add these options and use the active main chat's model and effort:
 
 ```bash
---codex-launcher /absolute/path/to/isolated-codex-launcher
---claude-launcher /absolute/path/to/isolated-claude-launcher
+--coordinator-model gpt-6.2-sol --coordinator-reasoning-effort high \
+  --codex-launcher /absolute/path/to/isolated-codex-launcher
 ```
 
-Provision the provider CLI, credentials, and an executable launcher that confines each member to its worktree and grants only the required access. The launcher receives the CLI executable and its arguments separately, with the prompt on stdin. It must keep operator credentials and state out of the worker's reach. A Git worktree isolates edits, not process permissions. The adapters have not yet been validated end to end against live provider accounts.
+To use Claude Code, start a separate service with `--claude-launcher` and its own state directory. The Codex budget does not define a cross-provider model ranking.
+
+Provision the provider CLI, credentials, and a launcher that confines each member to its worktree. On Windows the launcher can be an `.exe` or a `.py` script. Elsewhere use an executable file. The first argument is the provider command name, followed by its arguments. The prompt arrives on stdin and the launcher must relay the provider's stdout and exit code. The launcher is responsible for process isolation, keeping operator credentials and state inaccessible to worker tools, and applying the native [Codex Windows sandbox](https://learn.chatgpt.com/docs/windows/windows-sandbox) when using Codex on Windows. The launcher must stay attached until its provider exits.
+
+With a native Codex installation and working MXC sandbox, use the [Windows launcher](examples/codex/windows_launcher.py) from PowerShell:
+
+```powershell
+$env:LOCALSWARM_CODEX_EXE = (Get-Command codex.exe).Source
+python swarm.py serve --repo C:/path/to/repo --db "$env:LOCALAPPDATA/LocalSwarm/project/board.db" `
+  --owner-file "$env:LOCALAPPDATA/LocalSwarm/project/coordinator.key" `
+  --coordinator-model gpt-6.2-sol --coordinator-reasoning-effort high `
+  --codex-launcher examples/codex/windows_launcher.py
+```
+
+### Model and reasoning budgets
+
+`swarm_policy` reports the service ceiling. If an active session uses lower settings, include its `coordinator` object in `swarm_plan` or `swarm_spawn`. Set `task_level` according to the task. With a Sol High coordinator the defaults are:
+
+| Task level | Worker default |
+| --- | --- |
+| `routine` | Terra Medium |
+| `standard` | Terra High |
+| `demanding` | Terra Extra High |
+| `complex` | Sol High |
+
+Same-tier workers may use up to the coordinator's effort, with Max as the worker limit. Lower tiers may use one effort step above the coordinator, capped at Extra High. For example, Sol High can delegate to Terra Extra High or Sol High. Use `model` and `reasoning_effort` for explicit choices, and the corresponding `verifier_` fields to override verification. Use `low` for Light and `xhigh` for Extra High. Effort selects a provider reasoning setting. Actual token use depends on the turn.
+
+### Board communication
+
+Workers use `board_post` with `@name` to hand work between peers. `@plan:<plan-id>` routes to the current members of another plan on the same service. `@coordinator` sends a decision or blocker to the main chat's `swarm_inbox`. The main chat uses `swarm_status` with `compact: true` for progress and verification. The full board and each worker session hold the detailed history.
 
 ### Plan, verify, integrate
 
@@ -79,7 +129,7 @@ Submit the task list with `swarm_plan`; use `swarm_status` to read the plan and 
       "dependencies": [],
       "role": "worker",
       "backend": "codex",
-      "model": "default",
+      "task_level": "standard",
       "allowed_paths": ["README.md"],
       "criterion": "README shows the startup command and required inputs."
     }
@@ -87,7 +137,7 @@ Submit the task list with `swarm_plan`; use `swarm_status` to read the plan and 
 }
 ```
 
-Use an enabled backend; `default` selects the provider's configured model. A member reports evidence via `swarm_report`. With verdict `ready`, it can omit the SHA and let the service checkpoint its in-scope changes. A verifier's `pass` or `rework` names the exact candidate SHA.
+For Codex, omitting `model` or using `default` selects the budget-based route. A member reports evidence via `swarm_report`. With verdict `ready`, it can omit the SHA and let the service checkpoint its in-scope changes. A verifier's `pass` or `rework` names the exact candidate SHA.
 
 The scheduler starts eligible tasks, gives a verifier the exact commit to check, and records its evidence. A verifier can request rework within the task's attempt limit. Review passing commits in **Plans** before integrating them from the terminal. A dependent task waits until its prerequisite's verified commit has landed.
 

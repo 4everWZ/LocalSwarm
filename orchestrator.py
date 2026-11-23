@@ -55,7 +55,8 @@ class Orchestrator:
         if not isinstance(tasks, list) or not 1 <= len(tasks) <= 64:
             raise ValueError("plan requires 1–64 tasks")
         required = {"id", "dependencies", "role", "backend", "model", "allowed_paths", "criterion"}
-        optional = {"max_attempts", "verifier_backend", "verifier_model"}
+        optional = {"max_attempts", "verifier_backend", "verifier_model", "task_level",
+                    "reasoning_effort", "verifier_reasoning_effort"}
         spec = {}
         for item in tasks:
             if not isinstance(item, dict) or not required <= item.keys() or item.keys() - required - optional:
@@ -132,6 +133,13 @@ class Orchestrator:
     def _member_map(self):
         return {m["name"]: m for m in self.engine.members()}
 
+    def plan_members(self, plan_id):
+        with self._lock:
+            _, spec, rows = self._plan(plan_id)
+            members = self._member_map()
+            return [name for task in spec if rows[task["id"]]["status"] not in ("pending", "blocked", "passed")
+                    for name in self._names(plan_id, task["id"], rows[task["id"]]["attempt"]) if name in members]
+
     def _git(self, path, *args):
         return self.engine._git(path, *args).strip()
 
@@ -147,7 +155,7 @@ class Orchestrator:
         except RuntimeError:
             return False
 
-    def summary(self, plan_id):
+    def summary(self, plan_id, *, compact=False):
         with self._lock:
             plan, spec, rows = self._plan(plan_id)
             tasks = []
@@ -157,10 +165,16 @@ class Orchestrator:
                 worker, verifier = self._names(plan_id, t["id"], r["attempt"])
                 waiting = [d for d in t["dependencies"] if not merged.get(d)]
                 merged[t["id"]] = r["status"] == "passed" and self._merged(r["revision"])
-                tasks.append({**t, "status": r["status"], "attempt": r["attempt"],
+                task = {**t, "status": r["status"], "attempt": r["attempt"],
                               "revision": r["revision"], "evidence": r["evidence"],
                               "worker": worker, "verifier": verifier, "waiting_on": waiting,
-                              "integrated": merged[t["id"]]})
+                              "integrated": merged[t["id"]]}
+                if compact:
+                    for key in ("allowed_paths", "criterion", "dependencies", "max_attempts"):
+                        task.pop(key, None)
+                    if task["evidence"]:
+                        task["evidence"] = task["evidence"][:1200]
+                tasks.append(task)
             states = {r["status"] for r in tasks}
             if states == {"passed"}:
                 state = "passed"
@@ -171,7 +185,8 @@ class Orchestrator:
                 state = "running"
             else:
                 state = "waiting_for_integration"
-            return {"plan_id": plan_id, "goal": plan["goal"], "status": state, "tasks": tasks}
+            goal = plan["goal"][:600] if compact else plan["goal"]
+            return {"plan_id": plan_id, "goal": goal, "status": state, "tasks": tasks}
 
     def plans(self):
         with self._lock:
@@ -298,7 +313,8 @@ class Orchestrator:
                                 # committed Engine spawn if process death preceded this state write.
                                 if worker not in members:
                                     members[worker] = self.engine.spawn(worker, t["role"], self._brief(plan, t, r),
-                                                                       t["allowed_paths"], t["backend"], t["model"])
+                                                                        t["allowed_paths"], t["backend"], t["model"],
+                                                                        reasoning_effort=t.get("reasoning_effort"))
                                 self._change(r, status="implementing")
                         elif r["status"] in ("implementing", "verifying"):
                             role_actor = worker if r["status"] == "implementing" else verifier
@@ -314,7 +330,8 @@ class Orchestrator:
                                     if verifier not in members:
                                         members[verifier] = self.engine.spawn(verifier, "verifier", self._brief(plan, t, r, True),
                                                                              [], t["verifier_backend"], t["verifier_model"],
-                                                                             review_worker=worker, review_revision=r["revision"])
+                                                                             review_worker=worker, review_revision=r["revision"],
+                                                                             reasoning_effort=t.get("verifier_reasoning_effort"))
                                     elif members[verifier]["base_revision"] != r["revision"]:
                                         raise ValueError("recovered verifier is not pinned to the reported revision")
                                     self._change(r, status="verifying")

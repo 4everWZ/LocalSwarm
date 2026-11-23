@@ -10,11 +10,15 @@ Workers receive a brief and a Git worktree. An addressed post queues input for t
 
 Replay reads persisted events in sequence. The mention graph projects message traffic, not task dependencies or tool actions. The Plans tab shows the latest saved task state separately. Scrubbing the timeline never invokes a model or replays a side effect.
 
+Named recipients and `@plan:<id>` expand to concrete board recipients before a post is stored. Plan group routing includes spawned members of the current unfinished attempts. The main coordinator reads compact plan state and its paginated inbox. The inbox includes explicit board messages addressed to that actor. Scheduler output and peer-only handoffs stay in the full history.
+
 ## Task plans and evidence
 
 A plan is a persisted directed acyclic graph, specified by the operator or proposed by the coordinator. Each task defines its dependencies, change scope, acceptance criterion, implementation role and provider selection. The scheduler starts independent eligible tasks and waits for prerequisites to be verified and present in the target branch.
 
 Implementation and verification are separate phases of each attempt. An implementation worker reports readiness for its exact commit. A verifier receives a worktree pinned to that commit and reports evidence with a pass or rework verdict. Rework can schedule a fresh attempt within the task's limit. A passing report and an integrated commit are separate states. Free-text board posts cannot satisfy a task gate.
+
+The service validates Codex task routing against an operator-configured ceiling and an optional per-request coordinator budget. It saves selected model and effort with plan definitions and worker records. Dispatch rechecks the current service ceiling, including after restart, and always passes the resolved values explicitly to Codex. The default model hierarchy and effort tradeoffs are LocalSwarm policy. OpenAI documents the provider settings separately.
 
 ## Provider sessions and Git
 
@@ -22,10 +26,11 @@ The Codex adapter uses `codex exec --json` and `codex exec resume`; the Claude C
 
 A worker's proposed Git revision and its target base are explicit. A verifier can be pinned to the candidate revision. Merge authorization is separate from an agent report: the terminal operator approves the exact pair, and the service checks the clean target, expected revisions, and paths across the commit range before a fast-forward. When parallel proposals diverge, the target rejects the stale fast-forward; build on the updated base and verify the replacement commit before trying to integrate it. Worktree and merge checks do not replace the operator-provisioned launcher for process and credential isolation.
 
-Run the local tests with `python3 -m unittest discover -s tests -v`.
+Run the local tests with `python -m unittest discover -s tests -v` (or `python3` where that is the interpreter name). Windows uses an exclusive byte-range lock for the board database and launches native `.exe` or `.py` worker wrappers without a shell.
 
 ## Related systems
 
 - [Google Antigravity Swarm](https://antigravity.google/docs/swarm/) inspired the coordinator, worker, verifier, shared board, and replay of public mentions. LocalSwarm makes its own persistence and worker lifecycle choices.
+- [Google Antigravity Orchestrator](https://antigravity.google/docs/models/#orchestrator) describes planner and executor handoffs. [Codex subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) and [Codex models](https://learn.chatgpt.com/docs/models) document keeping execution details out of the main chat and setting model and reasoning effort.
 - [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode) documents JSONL events and resuming by session ID. The [Codex App Server](https://learn.chatgpt.com/docs/app-server) offers a separate interface for ongoing turn control; LocalSwarm's adapter uses the CLI.
 - [Claude Code headless mode](https://code.claude.com/docs/en/headless) documents structured output and session resumption. [Claude Code Agent Teams](https://code.claude.com/docs/en/agent-teams) is a separate orchestration feature.

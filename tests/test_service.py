@@ -77,7 +77,8 @@ class ServiceTest(unittest.TestCase):
                 cli = subprocess.run([sys.executable, "swarm.py", "--port", str(port), "mcp",
                                       "--owner-file", str(owner_file)], input=json.dumps(call) + "\n",
                                      text=True, capture_output=True, check=True)
-                self.assertEqual(len(json.loads(cli.stdout)["result"]["tools"]), 7)
+                names = {tool["name"] for tool in json.loads(cli.stdout)["result"]["tools"]}
+                self.assertTrue({"swarm_inbox", "swarm_policy", "swarm_spawn"} <= names)
             finally:
                 app.stop.set()
                 server.shutdown()
@@ -88,11 +89,14 @@ class ServiceTest(unittest.TestCase):
     def test_provider_launch_flags_and_receipts(self):
         sid = "70bc01ab-d74d-4c87-8178-14fb0a01cd03"
         spec = {"actor":"reviewer", "role":"verifier", "backend":"codex", "repo_path":"/tmp/test",
-                "brief":"Review the local docs", "events":[], "allowed_paths":[], "session_id":sid}
+                "brief":"Review the local docs", "events":[], "allowed_paths":[], "session_id":sid,
+                "model": "gpt-6.1-terra", "reasoning_effort": "xhigh"}
         args, prompt = command(spec, 7420)
         self.assertIn("read-only", args)
         self.assertEqual(args[args.index("exec") + 1], "resume")
         self.assertEqual(args[-2:], [sid, "-"])
+        self.assertIn('model_reasoning_effort="xhigh"', args)
+        self.assertIn('mcp_servers.swarm.tools.swarm_report.approval_mode="approve"', args)
         stdout = "\n".join(json.dumps(x) for x in [
             {"type":"thread.started","thread_id":sid},
             {"type":"item.completed","item":{"type":"agent_message","text":"done"}},
@@ -100,7 +104,7 @@ class ServiceTest(unittest.TestCase):
         ])
         self.assertEqual(parse_result("codex", stdout, 0, sid)["content"], "done")
         self.assertEqual(parse_result("codex", stdout, 1, sid)["status"], "failed")
-        spec["backend"] = "claude"
+        spec = {**spec, "backend": "claude", "model": "default", "reasoning_effort": None}
         args, prompt = command(spec, 7420)
         self.assertIn("Read,Glob,Grep", args)
         self.assertNotIn("Bash", " ".join(args))
@@ -108,6 +112,16 @@ class ServiceTest(unittest.TestCase):
         stdout = json.dumps({"type":"result","subtype":"success","session_id":sid,"result":"done"})
         self.assertEqual(parse_result("claude", stdout, 0, sid)["content"], "done")
         self.assertEqual(parse_result("claude", "{}", 0, sid)["status"], "failed")
+
+    def test_messages_received_before_first_turn_reach_worker_prompt(self):
+        req = {"actor": "builder", "role": "worker", "backend": "codex", "repo_path": "/tmp/test",
+               "brief": "Update README", "allowed_paths": ["README.md"],
+               "events": [{"status": "spawned", "content": "Redundant brief"},
+                          {"seq": 2, "actor": "peer", "content": "Use marker cedar-429"}]}
+        _, prompt = command(req, 7420)
+        self.assertIn('"actor": "peer"', prompt)
+        self.assertIn("cedar-429", prompt)
+        self.assertNotIn("Redundant brief", prompt)
 
 
 if __name__ == "__main__":

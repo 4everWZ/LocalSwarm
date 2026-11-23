@@ -84,7 +84,7 @@ function normalEvent(raw){
  const seq=seqOf(raw.seq); if(seq===null)return null;
  return {seq,actor:clean(raw.actor),mentions:Array.isArray(raw.mentions)?raw.mentions.map(clean).filter(Boolean):[],content:typeof raw.content==="string"?raw.content:"",status:clean(raw.status),created_at:clean(raw.created_at),kind:clean(raw.kind)};
 }
-function normalMember(raw){const name=clean(raw?.name);return name?{name,role:clean(raw.role),status:raw.active?"Running":clean(raw.status),backend:clean(raw.backend),model:clean(raw.model)}:null;}
+function normalMember(raw){const name=clean(raw?.name);return name?{name,role:clean(raw.role),status:raw.active?"Running":clean(raw.status),backend:clean(raw.backend),model:clean(raw.model),effort:clean(raw.reasoning_effort)}:null;}
 function labelText(v){return typeof v==="object"&&v?clean(v.message)||clean(v.reason)||clean(v.summary)||clean(v.id)||clean(v.name):clean(v);}
 function labels(v){return (Array.isArray(v)?v:[v]).map(labelText).filter(Boolean);}
 function normalTask(t){
@@ -167,7 +167,7 @@ function renderMembers(states){
   const li=node("li",undefined,"member"),h=node("div",undefined,"headline");
   h.append(node("strong",m.name,"body"),pill(m.status));li.append(h);
   if(m.role)li.append(node("p",m.role,"mini"));
-  if(m.backend||m.model)li.append(node("p",[m.backend,m.model].filter(Boolean).join(" / "),"mini"));
+  if(m.backend||m.model)li.append(node("p",[m.backend,m.model,m.effort].filter(Boolean).join(" / "),"mini"));
   if(m.lastSeen!==null)li.append(node("p","Last authored event #"+m.lastSeen,"mini"));$.roster.append(li);
  }
 }

@@ -5,14 +5,19 @@ import concurrent.futures
 from datetime import datetime, timezone
 from contextlib import contextmanager
 from fnmatch import fnmatchcase
-import fcntl
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import sqlite3
 import subprocess
 import threading
 import uuid
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 
 class Engine:
@@ -26,10 +31,14 @@ class Engine:
         self._lock = threading.RLock()
         self._closed = False
         self._active = {}
-        self._file = self.db_path.with_suffix(self.db_path.suffix + ".lock").open("a")
+        self._file = self.db_path.with_suffix(self.db_path.suffix + ".lock").open("a+b")
         try:
-            fcntl.flock(self._file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
+            if os.name == "nt":
+                self._file.seek(0)
+                msvcrt.locking(self._file.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl.flock(self._file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
             self._file.close()
             raise RuntimeError("another engine owns this database") from exc
         try:
@@ -55,6 +64,8 @@ class Engine:
                 self._db.execute("ALTER TABLE events ADD COLUMN source TEXT")
             if "turns" not in {r["name"] for r in self._db.execute("PRAGMA table_info(workers)")}:
                 self._db.execute("ALTER TABLE workers ADD COLUMN turns INTEGER NOT NULL DEFAULT 0")
+            if "reasoning_effort" not in {r["name"] for r in self._db.execute("PRAGMA table_info(workers)")}:
+                self._db.execute("ALTER TABLE workers ADD COLUMN reasoning_effort TEXT")
             with self._txn():
                 for row in self._db.execute("SELECT name,active FROM workers WHERE active IS NOT NULL").fetchall():
                     self._insert(row["name"], [], f"Interrupted run {row['active']}; claimed events will not be replayed.", "interrupted")
@@ -78,11 +89,12 @@ class Engine:
 
     @staticmethod
     def _git(path, *args):
-        result = subprocess.run(["git", "-C", str(path), "-c", "core.hooksPath=/dev/null", *args],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+        result = subprocess.run(["git", "-C", str(path), "-c", f"core.hooksPath={os.devnull}", *args],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
         if result.returncode:
-            raise RuntimeError(result.stderr.strip() or f"git {args[0]} failed")
-        return result.stdout
+            error = result.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(error or f"git {args[0]} failed")
+        return result.stdout.decode("utf-8")
 
     @staticmethod
     def _event(row):
@@ -102,7 +114,7 @@ class Engine:
                                  datetime.now(timezone.utc).isoformat(), source)).lastrowid
 
     def spawn(self, name, role, brief, allowed_paths, backend, model,
-              review_worker=None, review_revision=None):
+              review_worker=None, review_revision=None, reasoning_effort=None):
         if (not isinstance(name, str) or name.lower() in {"operator", "coordinator"}
                 or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,63}", name)):
             raise ValueError("invalid worker name")
@@ -130,8 +142,10 @@ class Engine:
             self._git(self.repo_path, "worktree", "add", "--detach", str(location), base)
             with self._txn():
                 cursor = self._db.execute("SELECT coalesce(max(seq),0) FROM events").fetchone()[0]
-                self._db.execute("INSERT INTO workers VALUES(?,?,?,?,?,?,?,?,NULL,?,NULL,0)",
-                                 (name, role, brief, json.dumps(allowed), backend, model, str(location), base, cursor))
+                self._db.execute("""INSERT INTO workers
+                    (name, role, brief, allowed_paths, backend, model, repo_path, base_revision, cursor, reasoning_effort)
+                    VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    (name, role, brief, json.dumps(allowed), backend, model, str(location), base, cursor, reasoning_effort))
                 self._insert("operator", [name], brief, "spawned")
             return self._get(name)
 
@@ -153,9 +167,31 @@ class Engine:
             seq = self._insert(actor, targets, content, status, "board")
         return seq
 
-    def read(self, since_seq=0):
+    def read(self, since_seq=0, *, actor=None, limit=None):
+        query = "SELECT * FROM events WHERE seq>?"
+        args = [since_seq]
+        if actor is not None:
+            query += " AND actor=?"
+            args.append(actor)
+        query += " ORDER BY seq"
+        if limit is not None:
+            query += " LIMIT ?"
+            args.append(limit)
         with self._lock:
-            return [self._event(row) for row in self._db.execute("SELECT * FROM events WHERE seq>? ORDER BY seq", (since_seq,))]
+            return [self._event(row) for row in self._db.execute(query, args)]
+
+    def inbox(self, name, since_seq=0, limit=20):
+        with self._lock:
+            rows = self._db.execute("""SELECT e.* FROM events e WHERE e.seq>? AND e.source='board' AND e.actor<>?
+                AND EXISTS (SELECT 1 FROM json_each(e.mentions) WHERE value=?)
+                ORDER BY e.seq LIMIT ?""", (since_seq, name, name, limit + 1)).fetchall()
+            events = [self._event(row) for row in rows[:limit]]
+            for event in events:
+                event["content"] = event["content"][:1500]
+            has_more = len(rows) > limit
+            latest = self._db.execute("SELECT coalesce(max(seq),0) FROM events").fetchone()[0]
+            return {"events": events, "next_seq": events[-1]["seq"] if has_more else max(since_seq, latest),
+                    "has_more": has_more}
 
     def members(self):
         with self._lock:

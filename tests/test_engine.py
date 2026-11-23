@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 import subprocess
 import tempfile
 import threading
@@ -105,7 +106,7 @@ class EngineTest(unittest.TestCase):
         engine = self.engine_with(run)
         self.spawn(engine)
         engine.close()
-        with sqlite3.connect(self.db) as db:
+        with closing(sqlite3.connect(self.db)) as db, db:
             claimed = db.execute("SELECT max(seq) FROM events").fetchone()[0]
             db.execute("UPDATE workers SET active='prior-crashed-run',cursor=?", (claimed,))
             db.execute("INSERT INTO events(actor,mentions,content) VALUES('coordinator','[\"builder\"]','later wake')")

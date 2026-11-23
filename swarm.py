@@ -15,6 +15,8 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
+from budget import Budget, TASK_LEVELS, effort_level
+
 
 def encode(obj):
     return json.dumps(obj, ensure_ascii=False, separators=(',', ':')).encode()
@@ -27,19 +29,26 @@ def schema(props, required=()):
 
 STR = {"type": "string", "maxLength": 12000}
 STRS = {"type": "array", "maxItems": 50, "items": STR}
+COORDINATOR = schema({"model": STR, "reasoning_effort": STR}, ("model", "reasoning_effort"))
+TASK_LEVEL = {"enum": list(TASK_LEVELS)}
 TASK = schema({"id": STR, "dependencies": STRS, "role": STR,
                "backend": {"enum": ["mock", "codex", "claude"]}, "model": STR,
                "allowed_paths": STRS, "criterion": STR,
+               "task_level": TASK_LEVEL, "reasoning_effort": STR, "verifier_reasoning_effort": STR,
                "max_attempts": {"type": "integer", "minimum": 1, "maximum": 5},
                "verifier_backend": {"enum": ["mock", "codex", "claude"]}, "verifier_model": STR},
-              ("id", "dependencies", "role", "backend", "model", "allowed_paths", "criterion"))
+              ("id", "dependencies", "role", "backend", "allowed_paths", "criterion"))
 TOOLS = {
     "swarm_plan": ("Create a dependency plan for the authorized local work.",
-                   schema({"plan_id": STR, "goal": STR,
+                   schema({"plan_id": STR, "goal": STR, "coordinator": COORDINATOR,
                            "tasks": {"type": "array", "maxItems": 64, "items": TASK}},
                           ("plan_id", "goal", "tasks"))),
     "swarm_status": ("Read one plan and its task evidence, or all plans.",
-                     schema({"plan_id": STR})),
+                     schema({"plan_id": STR, "compact": {"type": "boolean"}})),
+    "swarm_policy": ("Read the service's configured Codex coordinator ceiling and task levels.", schema({})),
+    "swarm_inbox": ("Read a bounded page of board messages addressed to you, excluding routine run output.",
+                    schema({"since_seq": {"type": "integer", "minimum": 0},
+                            "limit": {"type": "integer", "minimum": 1, "maximum": 50}})),
     "swarm_report": ("Submit authenticated evidence. Ready without a SHA checkpoints scoped changes; pass/rework requires the exact review SHA.",
                      schema({"plan_id": STR, "task_id": STR, "revision": STR,
                              "verdict": {"enum": ["ready", "pass", "rework"]}, "evidence": STR},
@@ -48,13 +57,15 @@ TOOLS = {
                     schema({"name": STR, "role": {"enum": ["worker", "verifier"]},
                             "brief": STR, "allowed_paths": STRS,
                             "backend": {"enum": ["mock", "codex", "claude"]}, "model": STR,
+                            "task_level": TASK_LEVEL, "reasoning_effort": STR, "coordinator": COORDINATOR,
                             "review_worker": STR, "review_revision": STR},
                            ("name", "role", "brief", "allowed_paths"))),
-    "board_post": ("Post as the authenticated actor. Mention other members by name.",
+    "board_post": ("Post as the authenticated actor. Mention @name, @coordinator or @plan:<plan-id>.",
                    schema({"mentions": STRS, "content": STR, "status": {"enum": ["waiting", "done"]}},
                           ("content",))),
-    "board_read": ("Replay board events after sequence number; newest events are last.",
-                   schema({"since_seq": {"type": "integer", "minimum": 0}})),
+    "board_read": ("Read detailed board events in sequence order. Use actor and limit to focus a lookup.",
+                   schema({"since_seq": {"type": "integer", "minimum": 0}, "actor": STR,
+                           "limit": {"type": "integer", "minimum": 1, "maximum": 100}})),
     "swarm_merge": ("Preview integration. An operator must separately approve the exact revision.",
                     schema({"worker_name": STR}, ("worker_name",))),
 }
@@ -70,6 +81,8 @@ def validate(data, spec):
         if "enum" in s and v not in s["enum"]:
             raise ValueError(f"invalid {k}")
         typ = s.get("type")
+        if typ == "object":
+            validate(v, s)
         if typ == "string" and (not isinstance(v, str) or len(v) > s.get("maxLength", 12000)):
             raise ValueError(f"invalid {k}")
         if typ == "array":
@@ -83,14 +96,18 @@ def validate(data, spec):
                     raise ValueError(f"invalid {k}")
         if typ == "integer" and (type(v) is not int or not s.get("minimum", 0) <= v <= s.get("maximum", 2**63 - 1)):
             raise ValueError(f"invalid {k}")
+        if typ == "boolean" and type(v) is not bool:
+            raise ValueError(f"invalid {k}")
 
 
 
 class Service:
-    def __init__(self, engine, owner, browser, backends=("mock",), operator=None, orchestrator=None):
+    def __init__(self, engine, owner, browser, backends=("mock",), operator=None, orchestrator=None,
+                 budget=None):
         self.engine, self.orchestrator = engine, orchestrator
         self.owner, self.browser, self.operator = owner, browser, operator
         self.backends = frozenset(backends)
+        self.budget = budget
         self.actors = {}
         self.lock = threading.RLock()
         self.actor_lock = threading.Lock()
@@ -110,6 +127,58 @@ class Service:
         with self.actor_lock:
             return self.actors.get(token)
 
+    def coordinator_budget(self, args):
+        supplied = args.get("coordinator")
+        if supplied is None:
+            return self.budget
+        if self.budget is None:
+            raise ValueError("no Codex coordinator budget configured on this service")
+        requested = Budget(supplied["model"], supplied["reasoning_effort"])
+        self.budget.maximum(requested.model)
+        if effort_level(requested.effort) > effort_level(self.budget.effort):
+            raise ValueError("session coordinator effort exceeds the service ceiling")
+        return requested
+
+    def route(self, backend, model, effort, level, coordinator):
+        if backend not in self.backends:
+            raise ValueError("backend not enabled by the operator")
+        if backend == "codex":
+            if coordinator is None:
+                raise ValueError("Codex workers require a configured coordinator budget")
+            return coordinator.select(level, model, effort, ceiling=self.budget)
+        if effort is not None or (backend == "claude" and coordinator is not None):
+            raise ValueError("Codex reasoning budgets apply only to Codex workers")
+        return model, None
+
+    def plan_tasks(self, tasks, coordinator):
+        routed = []
+        for source in tasks:
+            task = dict(source)
+            task.setdefault("model", "default")
+            task.setdefault("verifier_backend", task["backend"])
+            task.setdefault("verifier_model", task["model"])
+            level = task.get("task_level", "standard")
+            for prefix in ("", "verifier_"):
+                model, effort = self.route(task[prefix + "backend"], task[prefix + "model"],
+                                           task.get(prefix + "reasoning_effort"), level, coordinator)
+                task[prefix + "model"] = model
+                if effort is not None:
+                    task[prefix + "reasoning_effort"] = effort
+            routed.append(task)
+        return routed
+
+    def mention_targets(self, mentions):
+        targets = []
+        for mention in mentions:
+            name = mention.removeprefix("@")
+            if name.startswith("plan:"):
+                if self.orchestrator is None:
+                    raise ValueError("plan service unavailable")
+                targets.extend(self.orchestrator.plan_members(name.removeprefix("plan:")))
+            else:
+                targets.append(name)
+        return targets
+
     def tool(self, actor, name, args):
         if name not in TOOLS:
             raise ValueError("unknown tool")
@@ -120,15 +189,19 @@ class Service:
             if name in ("swarm_plan", "swarm_status", "swarm_report") and self.orchestrator is None:
                 raise ValueError("plan service unavailable")
             if name == "swarm_plan":
-                for task in args["tasks"]:
-                    if not {task["backend"], task.get("verifier_backend", task["backend"])} <= self.backends:
-                        raise ValueError("backend not enabled by the operator")
-                result = self.orchestrator.create(args["plan_id"], args["tasks"], args["goal"])
+                tasks = self.plan_tasks(args["tasks"], self.coordinator_budget(args))
+                result = self.orchestrator.create(args["plan_id"], tasks, args["goal"])
                 self.engine.post("coordinator", [], f"Plan {args['plan_id']} submitted", "plan")
                 return result
             if name == "swarm_status":
-                return (self.orchestrator.summary(args["plan_id"]) if args.get("plan_id")
-                        else self.orchestrator.plans())
+                if args.get("plan_id"):
+                    return self.orchestrator.summary(args["plan_id"], compact=args.get("compact", False))
+                return self.orchestrator.plans()
+            if name == "swarm_policy":
+                return {"coordinator": {"model": self.budget.model, "reasoning_effort": self.budget.effort}
+                        if self.budget else None, "task_levels": TASK_LEVELS, "backends": sorted(self.backends)}
+            if name == "swarm_inbox":
+                return self.engine.inbox(actor, args.get("since_seq", 0), args.get("limit", 20))
             if name == "swarm_report":
                 revision = args.get("revision")
                 if not revision and args["verdict"] == "ready":
@@ -143,19 +216,19 @@ class Service:
                 if args["name"].startswith("plan-"):
                     raise ValueError("member names beginning with plan- are reserved")
                 backend = args.get("backend", "mock")
-                if backend not in self.backends:
-                    raise ValueError("backend not enabled by the operator")
+                model, effort = self.route(backend, args.get("model", ""), args.get("reasoning_effort"),
+                                           args.get("task_level", "standard"), self.coordinator_budget(args))
                 return self.engine.spawn(args["name"], args["role"], args["brief"],
-                                         args["allowed_paths"], backend, args.get("model", ""),
+                                         args["allowed_paths"], backend, model, reasoning_effort=effort,
                                          review_worker=args.get("review_worker"),
                                          review_revision=args.get("review_revision"))
             if name == "board_post":
                 if actor == "coordinator" and args.get("status") is not None:
                     raise ValueError("coordinator has no scheduling status")
-                return self.engine.post(actor, [n.removeprefix("@") for n in args.get("mentions", [])], args["content"],
+                return self.engine.post(actor, self.mention_targets(args.get("mentions", [])), args["content"],
                                         args.get("status"))
             if name == "board_read":
-                return self.engine.read(args.get("since_seq", 0))
+                return self.engine.read(args.get("since_seq", 0), actor=args.get("actor"), limit=args.get("limit"))
             return self.engine.preview_merge(args["worker_name"])
 
     def schedule(self):
@@ -230,7 +303,7 @@ def make_handler(app):
                                  "text/html; charset=utf-8")
             if u.path == "/snapshot":
                 with app.lock:
-                    safe = ("name", "role", "backend", "model", "active")
+                    safe = ("name", "role", "backend", "model", "reasoning_effort", "active")
                     members = [{k: (bool(m[k]) if k == "active" else m[k])
                                 for k in safe if k in m} for m in app.engine.members()]
                     data = dict(events=app.engine.read(0), members=members,
@@ -333,7 +406,7 @@ def bridge(port, token, coordinator):
             elif method == "ping":
                 result = {}
             elif method == "tools/list":
-                names = TOOLS if coordinator else ("board_post", "board_read", "swarm_status", "swarm_report")
+                names = TOOLS if coordinator else ("board_post", "board_read", "swarm_inbox", "swarm_status", "swarm_report")
                 result = {"tools": [dict(name=n, description=TOOLS[n][0], inputSchema=TOOLS[n][1])
                                     for n in names]}
             elif method == "tools/call":
@@ -381,6 +454,8 @@ def main():
     start.add_argument("--owner-file", required=True)
     start.add_argument("--codex-launcher", type=Path)
     start.add_argument("--claude-launcher", type=Path)
+    start.add_argument("--coordinator-model")
+    start.add_argument("--coordinator-reasoning-effort")
     m = s.add_parser("mcp")
     m.add_argument("--owner-file")
     g = s.add_parser("merge")
@@ -389,6 +464,8 @@ def main():
     g.add_argument("--base-revision", required=True)
     a = p.parse_args()
     if a.mode == "mcp":
+        sys.stdin.reconfigure(encoding="utf-8")
+        sys.stdout.reconfigure(encoding="utf-8")
         token = get_owner(a.owner_file) if a.owner_file else os.environ.get("SWARM_ACTOR_TOKEN", "")
         if not token:
             p.error("provide --owner-file or injected worker capability")
@@ -400,22 +477,37 @@ def main():
         from engine import Engine
         from orchestrator import Orchestrator
         state = Path(a.db).expanduser().resolve()
-        state.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.umask(0o077)
+        state.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if bool(a.coordinator_model) != bool(a.coordinator_reasoning_effort) or (a.codex_launcher and not a.coordinator_model):
+            p.error("Codex requires both --coordinator-model and --coordinator-reasoning-effort")
+        try:
+            budget = Budget(a.coordinator_model, a.coordinator_reasoning_effort) if a.coordinator_model else None
+        except ValueError as exc:
+            p.error(str(exc))
+        if budget is not None and a.claude_launcher:
+            p.error("use a separate service for Claude workers without a Codex model budget")
         launchers = {name: launcher.resolve(strict=True) for name, launcher in
                      {"codex": a.codex_launcher, "claude": a.claude_launcher}.items() if launcher}
         for launcher in launchers.values():
             if not launcher.is_file() or not os.access(launcher, os.X_OK):
                 p.error("launcher must be an operator-selected local executable")
+            if os.name == "nt" and launcher.suffix.lower() not in (".exe", ".py"):
+                p.error("Windows launchers must be .exe executables or .py scripts")
         def run(req):
             if req["backend"] == "mock":
                 return mock_runner(req)
             from runner import run_with_launcher
+            if req["backend"] == "codex":
+                model, effort = app.route("codex", req["model"], req.get("reasoning_effort"), "standard", budget)
+                req = {**req, "model": model, "reasoning_effort": effort}
+            elif budget is not None:
+                raise ValueError("Claude workers cannot run under a Codex budget")
             return run_with_launcher(req, app, server.server_port, launchers[req["backend"]])
         eng = Engine(state, Path(a.repo).resolve(), run)
         app = Service(eng, get_owner(a.owner_file, True), secrets.token_urlsafe(32),
                       backends=("mock", *launchers), operator=secrets.token_urlsafe(24),
-                      orchestrator=Orchestrator(state.with_suffix(state.suffix + ".plans"), eng))
+                      orchestrator=Orchestrator(state.with_suffix(state.suffix + ".plans"), eng), budget=budget)
         server = ThreadingHTTPServer(("127.0.0.1", a.port), make_handler(app))
         thread = threading.Thread(target=app.schedule, daemon=True)
         thread.start()
