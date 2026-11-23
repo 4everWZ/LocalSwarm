@@ -1,5 +1,6 @@
 """Exercise the real local HTTP and MCP surfaces with the mock runner."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -11,7 +12,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, build_opener, ProxyHandler
 
 from engine import Engine
-from runner import command, parse_result
+from runner import command, parse_result, run_with_launcher
 from swarm import Service, make_handler, mock_runner, remote
 from http.server import ThreadingHTTPServer
 
@@ -122,6 +123,24 @@ class ServiceTest(unittest.TestCase):
         self.assertIn('"actor": "peer"', prompt)
         self.assertIn("cedar-429", prompt)
         self.assertNotIn("Redundant brief", prompt)
+
+    @unittest.skipUnless(os.name == "nt", "native Windows provider shutdown")
+    def test_windows_reaps_cli_that_stays_alive_after_completed_receipt(self):
+        sid = "70bc01ab-d74d-4c87-8178-14fb0a01cd03"
+        rows = [{"type": "thread.started", "thread_id": sid},
+                {"type": "item.completed", "item": {"type": "agent_message", "text": "done"}},
+                {"type": "turn.completed"}]
+        transcript = "\n".join(json.dumps(row) for row in rows)
+        with tempfile.TemporaryDirectory() as temp:
+            launcher = Path(temp) / "launcher.py"
+            launcher.write_text(f"import sys, time\nsys.stdin.read()\nprint({transcript!r}, flush=True)\ntime.sleep(60)\n",
+                                encoding="utf-8")
+            app = Service(None, "owner", "browser")
+            req = {"actor": "builder", "role": "worker", "backend": "codex", "repo_path": temp,
+                   "brief": "Test shutdown", "allowed_paths": []}
+            result = run_with_launcher(req, app, 7420, launcher, timeout=10)
+            self.assertEqual(result, {"session_id": sid, "status": "waiting", "content": "done"})
+            self.assertFalse(app.actors)
 
 
 if __name__ == "__main__":

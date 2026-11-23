@@ -2,11 +2,15 @@
 import json
 import os
 from pathlib import Path
+from queue import Empty, Queue
 import re
 import secrets
 import signal
 import subprocess
 import sys
+import tempfile
+import threading
+import time
 
 WORKER_TOOLS = ("board_read", "board_post", "swarm_inbox", "swarm_status", "swarm_report")
 
@@ -133,6 +137,8 @@ def run_with_launcher(req, app, port, launcher, timeout=300):
     if os.name == "nt" and Path(launcher).suffix.lower() == ".py":
         argv.insert(0, sys.executable)
     try:
+        if os.name == "nt" and req["backend"] == "codex":
+            return run_windows_codex(req, argv, env, prompt, timeout)
         with subprocess.Popen(argv, cwd=req["repo_path"], env=env,
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                               text=True, encoding="utf-8", errors="replace",
@@ -145,6 +151,51 @@ def run_with_launcher(req, app, port, launcher, timeout=300):
         return parse_result(req["backend"], output, child.returncode, req.get("session_id"))
     finally:
         app.remove_actor(token)
+
+
+def run_windows_codex(req, argv, env, prompt, timeout):
+    """Reap a CLI that delivered its turn receipt but stalled during shutdown."""
+    output = []
+    receipt = Queue()
+
+    def collect_stdout(stream):
+        for line in stream:
+            output.append(line)
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict) and event.get("type") in ("turn.completed", "turn.failed"):
+                receipt.put(event["type"])
+        receipt.put(None)
+
+    # Give the CLI a finite prompt stream even when its Windows launcher is a
+    # Python wrapper. The reader observes JSONL while the provider is still alive.
+    with tempfile.TemporaryFile() as input_file:
+        input_file.write(prompt.encode("utf-8"))
+        input_file.seek(0)
+        with subprocess.Popen(argv, cwd=req["repo_path"], env=env, stdin=input_file,
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              text=True, encoding="utf-8", errors="replace") as child:
+            reader = threading.Thread(target=collect_stdout, args=(child.stdout,), daemon=True)
+            reader.start()
+            deadline = time.monotonic() + timeout
+            terminal = None
+            forced = False
+            try:
+                terminal = receipt.get(timeout=timeout)
+                remaining = max(0, deadline - time.monotonic())
+                child.wait(timeout=min(2, remaining) if terminal else remaining)
+            except (Empty, subprocess.TimeoutExpired):
+                stop_worker(child)
+                forced = True
+            reader.join(timeout=5)
+            if forced and terminal != "turn.completed":
+                return {"status": "failed", "content": "Provider turn exceeded worker timeout."}
+            if reader.is_alive():
+                return {"status": "failed", "content": "Provider stdout did not close after the worker exited."}
+            rc = child.wait()
+    return parse_result("codex", "".join(output), 0 if forced else rc, req.get("session_id"))
 
 
 def stop_worker(child):

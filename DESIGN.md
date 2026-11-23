@@ -28,6 +28,8 @@ A worker's proposed Git revision and its target base are explicit. A verifier ca
 
 Run the local tests with `python -m unittest discover -s tests -v` (or `python3` where that is the interpreter name). Windows uses an exclusive byte-range lock for the board database and launches native `.exe` or `.py` worker wrappers without a shell.
 
+On Windows, a CLI that emits `turn.completed` and stalls while exiting is reaped after a short shutdown grace period. The scheduler records the completed turn after the process tree is stopped. A worker without a complete provider receipt still fails on timeout.
+
 ## Related systems
 
 - [Google Antigravity Swarm](https://antigravity.google/docs/swarm/) inspired the coordinator, worker, verifier, shared board, and replay of public mentions. LocalSwarm makes its own persistence and worker lifecycle choices.
