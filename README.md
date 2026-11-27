@@ -110,13 +110,27 @@ Use `model` and `reasoning_effort` for explicit choices. For a verifier, use `ve
 
 The [bundled routing policy](routing-policy.json) defines model tiers. Use `--routing-policy PATH` to supply your own JSON policy with `tiers` ordered from lightest to strongest. Each tier has a `name` and an ordered `models` list of model IDs or case-sensitive glob patterns. Earlier entries take priority within a tier. Use ordered exact model IDs to define the relative capability of variants in the same tier. A model outside the configured tiers can still delegate to itself when it is available.
 
-The service uses the authenticated [Codex model catalog](https://learn.chatgpt.com/docs/app-server#list-models-modellist) for available models and supported efforts. Run the catalog and worker under the same provider account. `--codex-executable PATH` sets the catalog executable. The service otherwise uses `LOCALSWARM_CODEX_EXE` on Windows when present, then searches `PATH`. The bundled Windows launcher uses the same executable for worker turns.
+The service uses the authenticated [Codex model catalog](https://learn.chatgpt.com/docs/app-server#list-models-modellist) for available models and supported efforts. Run the catalog and worker under the same provider account. On Windows, the service discovers the current Codex Desktop CLI under `%LOCALAPPDATA%\OpenAI\Codex\bin` and checks again on each dispatch. `--codex-executable PATH` explicitly pins a CLI. A custom `LOCALSWARM_CODEX_EXE` takes precedence over Desktop discovery, and `PATH` is the fallback. The bundled Windows launcher uses the CLI that the service used to validate the assignment.
 
 Plans and workers keep the coordinator budget and assignments saved at submission. Later changes in the active chat affect subsequent submissions. A resumed worker or retried task uses its pinned route. If that route becomes unavailable, the coordinator receives a blocker. To run records created before budget snapshots, start the service with the applicable legacy fixed ceiling.
 
 ### Board communication
 
-Workers use `board_post` with `@name` to hand work between peers. `@plan:<plan-id>` routes to the current members of another plan on the same service. `@coordinator` sends a decision or blocker to the main chat's `swarm_inbox`. The main chat uses `swarm_status` with `compact: true` for progress and verification. The full board and each worker session hold the detailed history.
+Workers use `board_post` with `@name` to hand work between peers. `@plan:<plan-id>` routes to the current members of another plan on the same service. `@coordinator` sends a decision or blocker to the main chat's `swarm_inbox`. The main chat uses `swarm_status` with `compact: true` for progress and verification.
+
+Open the private board URL for the checkout. **Board** shows recent messages, assignments, results, and blockers. Search or filter by member to find earlier messages, and use **Filters → All events** to include routine scheduler and plan activity. **Follow** advances the feed when you are at the latest message. Select a message to expand it.
+
+**Members** shows current roles, model settings, and status. Select a member to filter the Board to messages from or to them. **Plans** gives each plan a compact progress row. Open a plan and then a task for its dependencies, acceptance criteria, and review evidence. **Graph** has the mention timeline and replay controls. Replay leaves the other tabs live.
+
+The board loads messages in pages of 50 and holds up to five pages. Search and member filters cover the saved history. Reopening the board loads the latest messages. An open board keeps its repository service running while the connection is live.
+
+### Service and worktree lifecycle
+
+The Windows on-demand host stops a repository service after 30 minutes with no active board, MCP lease, queued or running work, or plan work waiting on Git integration. Open a sleeping checkout in **LocalSwarm 看板** or call a Swarm tool to start it again. A manually launched service stays running by default. Set `serve --idle-seconds N` to enable idle shutdown.
+
+A clean plan worktree becomes eligible for removal after its reviewed commit is integrated. LocalSwarm checks for active work, pending messages, local changes, untracked files, and ignored files. The seven-day retention period begins with the first successful check. LocalSwarm pins the revision in Git before removing the worktree and restores the original path before a later worker turn. History and verification evidence remain available. Use `serve --archive-days 0` to disable automatic worktree removal.
+
+Run `python swarm.py --port PORT archive-status --owner-file OWNER_FILE` to inspect candidates and skip reasons against a running repository service.
 
 ### Plan, verify, integrate
 

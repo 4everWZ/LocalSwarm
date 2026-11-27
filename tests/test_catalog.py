@@ -1,13 +1,39 @@
+import os
+from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import textwrap
 import unittest
 from unittest.mock import patch
 
-from catalog import CodexCatalog
+from catalog import CodexCatalog, is_managed_codex, newest_desktop_codex
 
 
 class CatalogTest(unittest.TestCase):
+    def test_desktop_rediscovery_after_update_removes_old_version(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name).resolve()
+            first, second = (root / version / "codex.exe" for version in ("aaa", "bbb"))
+            for timestamp, binary in enumerate((first, second), start=1):
+                binary.parent.mkdir()
+                binary.touch()
+                binary.chmod(0o700)
+                os.utime(binary, (timestamp, timestamp))
+            self.assertEqual(newest_desktop_codex(root), second)
+            second.unlink()
+            self.assertTrue(is_managed_codex(second, root))
+            self.assertEqual(newest_desktop_codex(root), first)
+
+    def test_changed_executable_invalidates_live_model_cache(self):
+        with patch("catalog._model_capabilities", side_effect=[{"before": set()}, {"after": set()}]) as query:
+            with patch("catalog.resolve_codex", side_effect=["old.exe", "new.exe"]):
+                import catalog
+                live = CodexCatalog("old.exe", resolver=catalog.resolve_codex)
+                self.assertIn("before", live.models())
+                self.assertIn("after", live.models())
+            self.assertEqual([call.args[0] for call in query.call_args_list], ["old.exe", "new.exe"])
+
     def mock_app_server(self, script):
         launch = subprocess.Popen
         processes = []

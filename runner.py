@@ -118,7 +118,7 @@ def parse_result(backend, stdout, rc, prior=None):
             "content": str(final)[:4000] or f"{backend} turn exited; waiting for a mention."}
 
 
-def run_with_launcher(req, app, port, launcher, timeout=300):
+def run_with_launcher(req, app, port, launcher, timeout=300, *, codex_executable=None):
     """Only opt-in. A user-provided launcher must enforce separate OS authority."""
     opts, prompt = command(req, port)
     token = secrets.token_urlsafe(32)
@@ -133,6 +133,8 @@ def run_with_launcher(req, app, port, launcher, timeout=300):
     env = {k: os.environ[k] for k in ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL",
                                       "TMPDIR", "TERM", *windows_env, *provider_env) if k in os.environ}
     env["SWARM_ACTOR_TOKEN"] = token
+    if os.name == "nt" and req["backend"] == "codex" and codex_executable is not None:
+        env["LOCALSWARM_CODEX_EXE"] = str(codex_executable)
     argv = [str(launcher), *opts]
     if os.name == "nt" and Path(launcher).suffix.lower() == ".py":
         argv.insert(0, sys.executable)

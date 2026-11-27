@@ -1,6 +1,7 @@
 """Local Swarm: stdio MCP bridge, durable scheduler, read-only web board."""
 import argparse
 import getpass
+import hashlib
 import http.cookies
 import json
 import os
@@ -107,7 +108,8 @@ def validate(data, spec):
 
 class Service:
     def __init__(self, engine, owner, browser, backends=("mock",), operator=None, orchestrator=None,
-                 budget=None, policy=None, catalog=None):
+                 budget=None, policy=None, catalog=None, *, idle_seconds=0, archive_days=7,
+                 clock=time.monotonic):
         self.engine, self.orchestrator = engine, orchestrator
         self.owner, self.browser, self.operator = owner, browser, operator
         self.backends = frozenset(backends)
@@ -118,6 +120,52 @@ class Service:
         self.lock = threading.RLock()
         self.actor_lock = threading.Lock()
         self.stop = threading.Event()
+        self.idle_seconds = idle_seconds
+        self.archive_retention = archive_days * 86400
+        self.clock = clock
+        self.idle_since = None
+        self.leases = {}
+        self.requests = 0
+        self.draining = False
+        self.scheduler_failed = False
+
+    def admit(self):
+        with self.lock:
+            if self.draining:
+                return False
+            self.requests += 1
+            self.idle_since = None
+            return True
+
+    def release(self):
+        with self.lock:
+            self.requests -= 1
+
+    def lease(self, data):
+        if (not isinstance(data, dict) or set(data) - {"id", "release"}
+                or not isinstance(data.get("id"), str) or not re.fullmatch(r"[a-f0-9]{32}", data["id"])
+                or type(data.get("release", False)) is not bool):
+            raise ValueError("invalid MCP lease")
+        with self.lock:
+            if data.get("release"):
+                self.leases.pop(data["id"], None)
+            else:
+                self.leases[data["id"]] = self.clock() + 65
+        return {"ttl_seconds": 65}
+
+    def should_drain(self, now):
+        with self.lock:
+            self.leases = {key: expiry for key, expiry in self.leases.items() if expiry > now}
+            if (not self.idle_seconds or self.requests or self.leases or self.engine.has_work()
+                    or (self.orchestrator and self.orchestrator.depends_on_git())):
+                self.idle_since = None
+                return False
+            if self.idle_since is None:
+                self.idle_since = now
+            if now - self.idle_since < self.idle_seconds:
+                return False
+            self.draining = True
+            return True
 
     def add_actor(self, token, name):
         with self.actor_lock:
@@ -143,13 +191,14 @@ class Service:
     def budget_record(budget):
         return {"model": budget.model, "reasoning_effort": budget.effort} if budget else None
 
-    def codex_models(self, coordinator, explicit=()):
+    def codex_models(self, coordinator, explicit=(), *, executable=None):
         if coordinator is None:
             raise ValueError("Codex workers require the active coordinator model and reasoning effort")
         if self.catalog is None:
             raise ValueError("Codex model catalog is not configured on this service")
         required = [coordinator.model, *(model for model in explicit if model not in AUTO_MODELS)]
-        models = self.catalog.models(required=required)
+        options = {"executable": executable} if executable is not None else {}
+        models = self.catalog.models(required=required, **options)
         self.policy.validate_coordinator(coordinator, models, ceiling=self.budget)
         return models
 
@@ -244,7 +293,7 @@ class Service:
                         preview[level][tier] = {"model": model, "reasoning_effort": effort}
         return result
 
-    def worker_assignment(self, req):
+    def worker_assignment(self, req, *, executable=None):
         """Use a saved assignment without rerouting when the active coordinator changes."""
         if self.catalog is None or "codex" not in self.backends:
             raise ValueError("Enable a Codex launcher and model catalog to run this saved assignment")
@@ -254,14 +303,15 @@ class Service:
             if self.budget is None:
                 raise ValueError("legacy Codex assignment has no saved coordinator budget. "
                                  "Use the legacy startup ceiling or submit a new assignment")
-            models = self.codex_models(self.budget, (model,))
+            models = self.codex_models(self.budget, (model,), executable=executable)
             return self.route("codex", model, effort, "standard", "auto", self.budget, models)
         if self.budget is not None:
-            models = self.codex_models(self.budget, (model,))
+            models = self.codex_models(self.budget, (model,), executable=executable)
             # A fixed service ceiling continues to limit assignments after restart.
             self.route("codex", model, effort, "standard", "auto", self.budget, models)
         else:
-            models = self.catalog.models(required=(model,))
+            options = {"executable": executable} if executable is not None else {}
+            models = self.catalog.models(required=(model,), **options)
         if model not in models or effort not in models[model]:
             raise ValueError(f"Saved Codex assignment {model!r} at {effort!r} is unavailable. "
                              "Restore provider availability or submit a new assignment")
@@ -319,23 +369,57 @@ class Service:
                 return self.engine.read(args.get("since_seq", 0), actor=args.get("actor"), limit=args.get("limit"))
             return self.engine.preview_merge(args["worker_name"])
 
-    def schedule(self):
+    def schedule(self, shutdown=None):
+        last_head = None
+        next_head_check = next_archive = 0
+        needs_tick = True
         while not self.stop.is_set():
             try:
+                now = self.clock()
+                if self.engine.changed.is_set():
+                    self.engine.changed.clear()
+                    needs_tick = True
                 with self.lock:
-                    if self.orchestrator is not None:
-                        for row in self.orchestrator.tick():
-                            self.engine.post("operator", [],
-                                             f"{row['plan_id']}/{row['task_id']}: {row['status']}", "plan")
-                    self.engine.tick()
+                    if self.orchestrator and (needs_tick or now >= next_head_check):
+                        head = self.orchestrator.refresh_head()
+                        needs_tick |= head != last_head
+                        last_head = head
+                        next_head_check = now + 1
+                    if needs_tick:
+                        if self.orchestrator:
+                            with self.orchestrator.git_view(refresh=False):
+                                for row in self.orchestrator.tick():
+                                    self.engine.post("operator", [],
+                                                     f"{row['plan_id']}/{row['task_id']}: {row['status']}", "plan")
+                        self.engine.tick()
+                        needs_tick = False
+                    if self.orchestrator and self.archive_retention and now >= next_archive:
+                        self.engine.maintain_worktrees(self.orchestrator.archive_candidates(),
+                                                       time.time(), self.archive_retention)
+                        next_archive = now + 600
+                    if self.should_drain(now):
+                        self.stop.set()
             except Exception as e:
                 print(f"scheduler stopped: {type(e).__name__}: {e}", file=sys.stderr)
+                with self.lock:
+                    self.draining = True
+                    self.scheduler_failed = True
                 self.stop.set()
-                break
-            self.stop.wait(.1)
+            if self.stop.is_set():
+                if shutdown:
+                    shutdown()
+                return
+            wait = 1
+            if self.idle_since is not None:
+                wait = min(wait, max(.001, self.idle_since + self.idle_seconds - self.clock()))
+            self.engine.changed.wait(wait)
 
 
 def make_handler(app):
+    from board_api import BoardAPI
+    board = BoardAPI(app)
+    cookie_name = "swarm_view_" + hashlib.sha256(os.fsencode(app.engine.db_path)).hexdigest()[:16]
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
             pass  # Never log capabilities embedded in preview URLs.
@@ -367,19 +451,29 @@ def make_handler(app):
             c = http.cookies.SimpleCookie()
             try:
                 c.load(self.headers.get("Cookie", ""))
-                return "swarm_view" in c and secrets.compare_digest(
-                    c["swarm_view"].value, app.browser)
-            except (ValueError, http.cookies.CookieError):
+                cookie = c.get(cookie_name) or c.get("swarm_view")
+                return cookie is not None and secrets.compare_digest(cookie.value, app.browser)
+            except (TypeError, ValueError, http.cookies.CookieError):
                 return False
 
         def do_GET(self):
             if not self.valid_origin():
                 return self.send(403, {"error": "unexpected origin"})
+            if not app.admit():
+                return self.send(503, {"error": "LocalSwarm service is going idle", "not_executed": True})
+            try:
+                return self.get()
+            except (ConnectionError, TimeoutError):
+                return  # The browser canceled the request or closed its stream.
+            finally:
+                app.release()
+
+        def get(self):
             u = urlsplit(self.path)
             if u.path.startswith("/open/") and secrets.compare_digest(u.path[6:], app.browser):
                 self.send_response(303)
                 self.send_header("Location", "/")
-                self.send_header("Set-Cookie", f"swarm_view={app.browser}; Path=/; HttpOnly; SameSite=Strict")
+                self.send_header("Set-Cookie", f"{cookie_name}={app.browser}; Path=/; HttpOnly; SameSite=Strict")
                 self.send_header("Referrer-Policy", "no-referrer")
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
@@ -397,12 +491,20 @@ def make_handler(app):
                     data = dict(events=app.engine.read(0), members=members,
                                 plans=app.orchestrator.plans() if app.orchestrator else [])
                 return self.send(200, data)
+            if u.path.startswith("/board/"):
+                try:
+                    return self.send(200, board.get(u.path, parse_qs(u.query)))
+                except ValueError as exc:
+                    return self.send(400, {"error": str(exc)})
+                except KeyError:
+                    return self.send(404, {"error": "board item not found"})
             if u.path != "/events":
                 return self.send(404, {"error": "not found"})
             try:
                 params = parse_qs(u.query)
                 since = int(self.headers.get("Last-Event-ID") or params.get("since", ["0"])[0])
                 validate({"since_seq": since}, TOOLS["board_read"][1])
+                compact = params.get("compact") == ["1"]
             except (ValueError, OverflowError):
                 return self.send(400, {"error": "invalid cursor"})
             self.send_response(200)
@@ -411,28 +513,39 @@ def make_handler(app):
             self.connection.settimeout(5)
             try:
                 while not app.stop.is_set():
-                    with app.lock:
-                        rows = app.engine.read(since)
+                    if compact:
+                        rows = [{"seq": seq} for seq in app.engine.sequences(since, 100)]
+                    else:
+                        rows = app.engine.read(since, limit=100)
                     if not rows:
                         self.wfile.write(b": heartbeat\n\n")
                     for row in rows:
                         since = row["seq"]
                         self.wfile.write(f"id: {since}\ndata: ".encode() + encode(row) + b"\n\n")
                     self.wfile.flush()
-                    app.stop.wait(1)
+                    if len(rows) < 100:
+                        app.stop.wait(1)
             except OSError:
                 return
 
         def do_POST(self):
-            if not self.valid_origin() or self.path not in ("/rpc", "/operator-merge"):
+            if not self.valid_origin() or self.path not in ("/rpc", "/operator-merge", "/lease", "/archive-status"):
                 return self.send(403, {"error": "unexpected origin or route"})
             raw = self.headers.get("Authorization", "").removeprefix("Bearer ")
             actor = app.actor(raw)
             if self.path == "/operator-merge":
                 if not app.operator or not secrets.compare_digest(raw, app.operator):
                     return self.send(403, {"error": "operator capability required"})
-            elif not actor:
+            elif not actor or (self.path in ("/lease", "/archive-status") and actor != "coordinator"):
                 return self.send(403, {"error": "invalid capability"})
+            if not app.admit():
+                return self.send(503, {"error": "LocalSwarm service is going idle", "not_executed": True})
+            try:
+                return self.post(actor)
+            finally:
+                app.release()
+
+        def post(self, actor):
             try:
                 self.connection.settimeout(5)
                 length = int(self.headers.get("Content-Length", "0"))
@@ -452,6 +565,14 @@ def make_handler(app):
                             app.orchestrator.require_merge_ready(data["worker"], data["revision"])
                         result = app.engine.merge(data["worker"], expected_revision=data["revision"],
                                               expected_base_revision=data["base_revision"])
+                elif self.path == "/lease":
+                    result = app.lease(data)
+                elif self.path == "/archive-status":
+                    if data:
+                        raise ValueError("archive status takes no arguments")
+                    with app.lock:
+                        eligible = app.orchestrator.archive_candidates() if app.orchestrator else {}
+                        result = app.engine.maintain_worktrees(eligible, time.time(), app.archive_retention, dry_run=True)
                 else:
                     result = app.tool(actor, data.get("name"), data.get("args", {}))
                 return self.send(200, {"result": result})
@@ -546,12 +667,16 @@ def main():
     start.add_argument("--coordinator-reasoning-effort")
     start.add_argument("--routing-policy", type=Path)
     start.add_argument("--codex-executable", type=Path)
+    start.add_argument("--idle-seconds", type=float, default=0, help="stop after this many idle seconds (0 keeps running)")
+    start.add_argument("--archive-days", type=float, default=7, help="retain eligible worktrees for this many days (0 disables)")
     m = s.add_parser("mcp")
     m.add_argument("--owner-file")
     g = s.add_parser("merge")
     g.add_argument("worker")
     g.add_argument("--revision", required=True)
     g.add_argument("--base-revision", required=True)
+    archive = s.add_parser("archive-status")
+    archive.add_argument("--owner-file", required=True)
     a = p.parse_args()
     if a.mode == "mcp":
         sys.stdin.reconfigure(encoding="utf-8")
@@ -563,10 +688,15 @@ def main():
     elif a.mode == "merge":
         print(encode(remote(a.port, getpass.getpass("Operator code: "), "/operator-merge",
                             {"worker": a.worker, "revision": a.revision, "base_revision": a.base_revision})).decode())
+    elif a.mode == "archive-status":
+        print(encode(remote(a.port, get_owner(a.owner_file), "/archive-status", {})).decode())
     else:
+        import math
         from catalog import CodexCatalog, resolve_codex
         from engine import Engine
         from orchestrator import Orchestrator
+        if any(not math.isfinite(value) or value < 0 for value in (a.idle_seconds, a.archive_days)):
+            p.error("idle seconds and archive days must be finite nonnegative numbers")
         state = Path(a.db).expanduser().resolve()
         os.umask(0o077)
         state.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -576,14 +706,12 @@ def main():
             budget = Budget(a.coordinator_model, a.coordinator_reasoning_effort) if a.coordinator_model else None
             policy = RoutingPolicy.from_file(a.routing_policy) if a.codex_launcher else None
             executable = resolve_codex(a.codex_executable) if a.codex_launcher else None
-            catalog = CodexCatalog(executable) if executable else None
+            resolver = resolve_codex if os.name == "nt" and not a.codex_executable else None
+            catalog = CodexCatalog(executable, resolver=resolver) if executable else None
         except (OSError, ValueError) as exc:
             p.error(str(exc))
         if a.claude_launcher and (budget is not None or a.codex_launcher):
             p.error("use a separate service for Claude workers without a Codex model budget")
-        if executable is not None and os.name == "nt":
-            # The bundled launcher uses the same executable for worker turns.
-            os.environ["LOCALSWARM_CODEX_EXE"] = str(executable)
         launchers = {name: launcher.resolve(strict=True) for name, launcher in
                      {"codex": a.codex_launcher, "claude": a.claude_launcher}.items() if launcher}
         for launcher in launchers.values():
@@ -597,22 +725,26 @@ def main():
             if req["backend"] not in launchers:
                 return {"status": "blocked", "content": f"Enable the {req['backend']} launcher to run this saved assignment"}
             from runner import run_with_launcher
+            worker_cli = None
             if req["backend"] == "codex":
                 try:
-                    model, effort = app.worker_assignment(req)
+                    if os.name == "nt":
+                        worker_cli = resolve_codex(a.codex_executable)
+                    model, effort = app.worker_assignment(req, executable=worker_cli)
                 except ValueError as exc:
                     return {"status": "blocked", "content": str(exc)}
                 req = {**req, "model": model, "reasoning_effort": effort}
             elif budget is not None:
                 raise ValueError("Claude workers cannot run under a Codex budget")
-            return run_with_launcher(req, app, server.server_port, launchers[req["backend"]])
+            return run_with_launcher(req, app, server.server_port, launchers[req["backend"]],
+                                     codex_executable=worker_cli)
         eng = Engine(state, Path(a.repo).resolve(), run)
         app = Service(eng, get_owner(a.owner_file, True), secrets.token_urlsafe(32),
                       backends=("mock", *launchers), operator=secrets.token_urlsafe(24),
                       orchestrator=Orchestrator(state.with_suffix(state.suffix + ".plans"), eng), budget=budget,
-                      policy=policy, catalog=catalog)
+                      policy=policy, catalog=catalog, idle_seconds=a.idle_seconds, archive_days=a.archive_days)
         server = ThreadingHTTPServer(("127.0.0.1", a.port), make_handler(app))
-        thread = threading.Thread(target=app.schedule, daemon=True)
+        thread = threading.Thread(target=app.schedule, args=(server.shutdown,), daemon=True)
         thread.start()
         print(f"Private board: http://127.0.0.1:{server.server_port}/open/{app.browser}", flush=True)
         print(f"Operator code (not in MCP): {app.operator}", flush=True)
@@ -622,10 +754,13 @@ def main():
             pass
         finally:
             app.stop.set()
+            eng.changed.set()
             server.server_close()
             thread.join()
             app.orchestrator.close()
             eng.close()
+        if app.scheduler_failed:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

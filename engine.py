@@ -31,6 +31,7 @@ class Engine:
         self._lock = threading.RLock()
         self._closed = False
         self._active = {}
+        self.changed = threading.Event()
         self._file = self.db_path.with_suffix(self.db_path.suffix + ".lock").open("a+b")
         try:
             if os.name == "nt":
@@ -68,6 +69,10 @@ class Engine:
             for column in ("reasoning_effort", "coordinator"):
                 if column not in worker_columns:
                     self._db.execute(f"ALTER TABLE workers ADD COLUMN {column} TEXT")
+            for column, schema in (("archive_since", "REAL"), ("archive_revision", "TEXT"),
+                                   ("archive_state", "TEXT NOT NULL DEFAULT 'live'")):
+                if column not in worker_columns:
+                    self._db.execute(f"ALTER TABLE workers ADD COLUMN {column} {schema}")
             with self._txn():
                 for row in self._db.execute("SELECT name,active FROM workers WHERE active IS NOT NULL").fetchall():
                     self._insert(row["name"], [], f"Interrupted run {row['active']}; claimed events will not be replayed.", "interrupted")
@@ -113,9 +118,12 @@ class Engine:
         return data
 
     def _insert(self, actor, mentions, content, status, source="scheduler"):
-        return self._db.execute("INSERT INTO events(actor,mentions,content,status,created_at,source) VALUES(?,?,?,?,?,?)",
-                                (actor, json.dumps(mentions), content, status,
-                                 datetime.now(timezone.utc).isoformat(), source)).lastrowid
+        seq = self._db.execute(
+            "INSERT INTO events(actor,mentions,content,status,created_at,source) VALUES(?,?,?,?,?,?)",
+            (actor, json.dumps(mentions), content, status, datetime.now(timezone.utc).isoformat(), source)
+        ).lastrowid
+        self.changed.set()
+        return seq
 
     def spawn(self, name, role, brief, allowed_paths, backend, model,
               review_worker=None, review_revision=None, reasoning_effort=None, coordinator=None):
@@ -202,6 +210,139 @@ class Engine:
         with self._lock:
             return [self._worker(row) for row in self._db.execute("SELECT * FROM workers ORDER BY name")]
 
+    def latest_seq(self):
+        with self._lock:
+            return self._db.execute("SELECT coalesce(max(seq),0) FROM events").fetchone()[0]
+
+    def sequences(self, since, limit):
+        with self._lock:
+            return [row[0] for row in self._db.execute(
+                "SELECT seq FROM events WHERE seq>? ORDER BY seq LIMIT ?", (since, limit))]
+
+    def _addressed(self, name, cursor, through, limit=None):
+        query = """SELECT e.* FROM events e
+            WHERE e.seq>? AND e.seq<=? AND e.actor<>?
+              AND EXISTS (SELECT 1 FROM json_each(e.mentions) WHERE value=?)
+            ORDER BY e.seq"""
+        args = [cursor, through, name, name]
+        if limit is not None:
+            query += " LIMIT ?"
+            args.append(limit)
+        return self._db.execute(query, args)
+
+    def has_work(self):
+        """Use after tick. Unexamined rows can conservatively keep the service awake."""
+        with self._lock:
+            return bool(self._active or self._db.execute(
+                "SELECT 1 FROM workers WHERE cursor < (SELECT max(seq) FROM events) LIMIT 1"
+            ).fetchone())
+
+    def _archive_path(self, worker):
+        root = self.db_path.parent / (self.db_path.name + ".worktrees")
+        path = Path(worker["repo_path"])
+        if (not re.fullmatch(re.escape(worker["name"]) + r"-[a-f0-9]{32}", path.name) or path.parent != root
+                or root.resolve() != root or path.resolve() != path):
+            raise ValueError("worktree path is outside managed storage")
+        return path
+
+    @staticmethod
+    def _archive_ref(worker):
+        return "refs/localswarm/archived/" + worker["name"]
+
+    def _check_archive(self, worker, revision, through):
+        if worker["active"]:
+            return "Worker is active"
+        if self._addressed(worker["name"], worker["cursor"], through, 1).fetchone():
+            return "Messages are pending"
+        try:
+            path = self._archive_path(worker)
+            if not path.is_dir():
+                return "Worktree is missing"
+            root = self._git(path, "rev-parse", "--show-toplevel").strip()
+            common = self._git(path, "rev-parse", "--path-format=absolute", "--git-common-dir").strip()
+            expected = self._git(self.repo_path, "rev-parse", "--path-format=absolute", "--git-common-dir").strip()
+            if Path(root).resolve() != path or Path(common).resolve() != Path(expected).resolve():
+                return "Worktree ownership could not be verified"
+            if self._git(path, "rev-parse", "HEAD").strip() != revision:
+                return "Worktree HEAD differs from the integrated revision"
+            if self._git(path, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"):
+                return "Worktree contains changes, untracked files or ignored files"
+            self._git(self.repo_path, "merge-base", "--is-ancestor", revision, "HEAD")
+        except (RuntimeError, OSError, ValueError):
+            return "Worktree or integration could not be verified"
+        return None
+
+    def maintain_worktrees(self, eligible, now, retention, *, dry_run=False):
+        """Inspect only plan-owned worktrees with a verified integrated revision."""
+        results = []
+        with self._lock:
+            through = self.latest_seq()
+            for worker in self.members():
+                name = worker["name"]
+                revision = eligible.get(name)
+                state = worker["archive_state"]
+                if state == "archived":
+                    results.append({"worker": name, "status": "archived"})
+                    continue
+                if state == "archiving" and not dry_run:
+                    try:
+                        path = self._archive_path(worker)
+                        state = "live" if path.exists() else "archived"
+                        self._db.execute("UPDATE workers SET archive_state=? WHERE name=?", (state, name))
+                    except (OSError, ValueError):
+                        results.append({"worker": name, "status": "skipped", "reason": "Archive recovery requires inspection"})
+                        continue
+                    if state == "archived":
+                        results.append({"worker": name, "status": state})
+                        continue
+                reason = self._check_archive(worker, revision, through) if revision else "No verified integrated plan revision"
+                if reason:
+                    if not dry_run and worker["archive_since"] is not None:
+                        self._db.execute("UPDATE workers SET archive_since=NULL WHERE name=?", (name,))
+                    results.append({"worker": name, "status": "skipped", "reason": reason})
+                    continue
+                since = worker["archive_since"]
+                if since is None and not dry_run:
+                    self._db.execute("UPDATE workers SET archive_since=? WHERE name=?", (now, name))
+                ready = since is not None and now - since >= retention
+                report = {"worker": name, "status": "eligible" if ready else "retaining",
+                          "eligible_after": (now if since is None else since) + retention}
+                if ready and not dry_run:
+                    path = self._archive_path(worker)
+                    try:
+                        self._git(self.repo_path, "update-ref", self._archive_ref(worker), revision)
+                        self._db.execute(
+                            "UPDATE workers SET archive_state='archiving', archive_revision=? WHERE name=?",
+                            (revision, name),
+                        )
+                        self._git(self.repo_path, "worktree", "remove", str(path))
+                        self._db.execute("UPDATE workers SET archive_state='archived' WHERE name=?", (name,))
+                        report["status"] = "archived"
+                    except (OSError, RuntimeError):
+                        report.update(status="skipped", reason="Git could not safely remove the worktree")
+                results.append(report)
+        return results
+
+    def ensure_worktree(self, worker):
+        with self._lock:
+            if worker["archive_state"] == "live":
+                return
+            path = self._archive_path(worker)
+            revision = worker["archive_revision"]
+            pinned = self._git(self.repo_path, "rev-parse", "--verify", self._archive_ref(worker)).strip()
+            if not revision or pinned != revision:
+                raise ValueError("worktree archive revision is unavailable")
+            if not path.exists():
+                self._git(self.repo_path, "worktree", "add", "--detach", str(path), revision)
+            else:
+                root = self._git(path, "rev-parse", "--show-toplevel").strip()
+                common = self._git(path, "rev-parse", "--path-format=absolute", "--git-common-dir").strip()
+                expected = self._git(self.repo_path, "rev-parse", "--path-format=absolute", "--git-common-dir").strip()
+                if (Path(root).resolve() != path or Path(common).resolve() != Path(expected).resolve()
+                        or self._git(path, "rev-parse", "HEAD").strip() != revision):
+                    raise ValueError("worktree archive location is already occupied")
+            self._db.execute("UPDATE workers SET archive_state='live',archive_since=NULL WHERE name=?", (worker["name"],))
+
     def awaiting_reply(self, name):
         with self._lock:
             state = self._db.execute("""SELECT status FROM events
@@ -262,24 +403,35 @@ class Engine:
                     self._finish(name, run_id, future)
                     del self._active[name]
                     reaped.append(name)
-            for worker in self.members():
+            through = self.latest_seq()
+            candidates = self._db.execute(
+                "SELECT * FROM workers WHERE active IS NULL AND cursor<? ORDER BY name", (through,)
+            ).fetchall()
+            for row in candidates:
                 if len(self._active) >= self.max_workers:
                     break
+                worker = self._worker(row)
                 name = worker["name"]
-                if worker["active"]:
-                    continue
-                events = [e for e in self.read(worker["cursor"]) if name in e["mentions"] and e["actor"] != name]
+                events = [self._event(e) for e in self._addressed(name, worker["cursor"], through)]
                 if not events:
+                    self._db.execute("UPDATE workers SET cursor=? WHERE name=?", (through, name))
                     continue
                 if worker["turns"] >= self.max_turns:
                     with self._txn():
-                        self._db.execute("UPDATE workers SET cursor=? WHERE name=?", (events[-1]["seq"], name))
+                        self._db.execute("UPDATE workers SET cursor=? WHERE name=?", (through, name))
                         self._insert(name, [], "Turn limit reached; no provider call was made.", "limited")
+                    continue
+                try:
+                    self.ensure_worktree(worker)
+                except (OSError, RuntimeError, ValueError) as exc:
+                    with self._txn():
+                        self._db.execute("UPDATE workers SET cursor=? WHERE name=?", (through, name))
+                        self._insert(name, ["coordinator"], f"Worktree recovery blocked: {exc}", "blocked", "board")
                     continue
                 run_id = uuid.uuid4().hex
                 with self._txn():
-                    self._db.execute("UPDATE workers SET cursor=?,active=?,turns=turns+1 WHERE name=?",
-                                     (events[-1]["seq"], run_id, name))
+                    self._db.execute("UPDATE workers SET cursor=?,active=?,turns=turns+1,archive_since=NULL WHERE name=?",
+                                     (through, run_id, name))
                     self._insert(name, [], "", "running")
                 request = {**worker, "actor": name, "active": run_id, "run_id": run_id, "events": events}
                 try:
@@ -288,6 +440,7 @@ class Engine:
                     future = concurrent.futures.Future()
                     future.set_exception(exc)
                 self._active[name] = (run_id, future)
+                future.add_done_callback(lambda _: self.changed.set())
                 launched.append(name)
             return {"launched": launched, "reaped": reaped}
 
@@ -307,6 +460,7 @@ class Engine:
                 raise ValueError("verifiers cannot be merged")
             if worker["active"]:
                 raise RuntimeError("worker run must finish before merge review")
+            self.ensure_worktree(worker)
             location = worker["repo_path"]
             revision = self._git(location, "rev-parse", "HEAD").strip()
             base = self._git(self.repo_path, "rev-parse", "HEAD").strip()

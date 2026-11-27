@@ -6,24 +6,111 @@
 <meta name="color-scheme" content="light">
 <title>Local Swarm · Board</title>
 <style>
-:root{color-scheme:light;--ink:#182230;--sub:#475569;--line:#d6dfe8;--soft:#edf3f8;--blue:#144c87;--good:#1d673e;--warn:#925611;--bad:#a32e35;--white:#fff}
-*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;font:14px/1.5 system-ui,sans-serif;color:var(--ink);background:#f5f7fa}
-button,input{font:inherit}button{padding:.43rem .72rem;border:1px solid #aab9c9;border-radius:6px;background:white;color:var(--ink);cursor:pointer}button:hover:not(:disabled){background:var(--soft)}button:disabled{color:var(--sub);opacity:.6;cursor:default}
-button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #1170c5;outline-offset:3px}
-.wrap{max-width:1130px;margin:auto;padding:0 20px}
-header{background:#fff;border-bottom:1px solid var(--line)}.heading{display:flex;align-items:center;gap:12px;justify-content:space-between;min-height:62px}.heading h1{font-size:21px;margin:0;letter-spacing:-.025em}.connection{font-size:12px;color:var(--sub);display:flex;align-items:center;gap:7px}.connection:before,.pill:before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}.connection[data-state="connected"]{color:var(--good)}.connection[data-state="retry"]{color:var(--warn)}
-nav{display:flex;gap:6px;align-items:center;overflow:auto}nav button{border:1px solid transparent;border-radius:6px 6px 0 0;color:var(--sub);font-weight:600;white-space:nowrap}nav button[aria-selected="true"]{color:var(--blue);background:var(--soft);border-color:var(--line);border-bottom-color:var(--soft)}
-main{padding-top:18px!important;padding-bottom:30px!important}.card{background:white;border:1px solid var(--line);border-radius:8px;margin-bottom:14px;padding:14px 16px}.timer{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;gap:9px 14px;align-items:center}
-.timer h2,.panel-head h2,.aside h2{font-size:15px;margin:0}.timer p,.panel-head p,.aside p{margin:2px 0 0;color:var(--sub);font-size:12px}.timer input{width:100%;accent-color:var(--blue)}.timer output{grid-column:2;color:var(--sub);font-size:12px;overflow-wrap:anywhere}.timer .controls{display:flex;flex-wrap:wrap;gap:7px}.strong{background:#1a4f89;color:#fff;border-color:#1a4f89;font-weight:700}.strong:hover:not(:disabled){background:#153f6c}.key{color:var(--sub);font-size:12px}
-.layout{display:grid;grid-template-columns:minmax(0,1fr) 235px;gap:14px;align-items:start}.panel-head{display:flex;justify-content:space-between;gap:15px;align-items:start;margin-bottom:12px}section[hidden]{display:none}.empty{padding:20px 14px;background:#f8fafc;border:1px dashed #bbc8d5;border-radius:6px;color:var(--sub);margin:0;overflow-wrap:anywhere}.timeline,.roster,.links{list-style:none;margin:0;padding:0}.timeline li{padding:10px 0;border-top:1px solid var(--line)}.timeline li:last-child{padding-bottom:0}.headline{display:flex;justify-content:space-between;align-items:start;gap:10px}.identity{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0;overflow-wrap:anywhere}.identity strong{font-size:13px}.meta,.mini{font-size:12px;color:var(--sub);overflow-wrap:anywhere}.body{white-space:pre-wrap;overflow-wrap:anywhere;margin:5px 0 0}.mentions{margin:5px 0 0;font-size:12px;color:var(--blue);overflow-wrap:anywhere}.pill{display:inline-flex;padding:1px 6px;gap:5px;align-items:center;border:1px solid var(--line);border-radius:5px;font-size:11px;white-space:normal;color:var(--sub);overflow-wrap:anywhere}.pill[data-tone="good"]{color:var(--good);background:#f1f8f3}.pill[data-tone="warn"]{color:var(--warn);background:#fff8e9}.pill[data-tone="bad"]{color:var(--bad);background:#fff1f1}.aside ul{display:grid;gap:8px}.aside li{display:flex;align-items:start;justify-content:space-between;gap:7px;font-size:12px;overflow-wrap:anywhere}.aside .empty{margin-top:10px;padding:10px}.member-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:8px}.member{border:1px solid var(--line);border-radius:6px;padding:9px 10px}.member p{margin:3px 0;color:var(--sub);overflow-wrap:anywhere}.graph-frame{overflow:auto;border:1px solid var(--line);border-radius:6px;background:#f8fafc}.graph-frame svg{display:block;margin:0 auto}.links li{border-top:1px solid var(--line);padding:6px 0;overflow-wrap:anywhere}.subhead{font-size:13px;margin:12px 0 3px}.sr-only{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden;white-space:nowrap}.notice{display:flex;align-items:center;justify-content:space-between;gap:10px}.notice p{margin:0;color:var(--sub);overflow-wrap:anywhere}
-@media(max-width:700px){.wrap{padding-inline:13px}.layout{grid-template-columns:1fr}.timer{grid-template-columns:1fr auto}.timer input,.timer output{grid-column:1/-1}.timer .controls{grid-column:2;grid-row:1}.headline{flex-wrap:wrap;gap:2px 9px}.aside{order:2}.card{padding:11px 12px}}
-@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
-.plan-list,.task-list{list-style:none;padding:0;margin:0;display:grid;gap:9px}.plan-card{border:1px solid var(--line);border-radius:6px;padding:12px;min-width:0}.plan-card h3{font-size:14px;margin:0;overflow-wrap:anywhere}.plan-card .task-list{margin-top:9px}.plan-card .task-list>li{border-top:1px solid var(--line);padding-top:8px;min-width:0}.task-details{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:2px 8px;font-size:12px;margin:6px 0 0}.task-details dt{color:var(--sub)}.task-details dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}.revision{font-family:ui-monospace,monospace;user-select:all}.plan-hint{margin:0 0 10px;color:var(--sub);font-size:12px}
+:root {
+ color-scheme:light;
+ --ink:#172432; --sub:#4d5c6c; --line:#dce4eb; --soft:#f4f7fa;
+ --blue:#164c84; --good:#216341; --warn:#855413; --bad:#a12e36;
+}
+* { box-sizing:border-box }
+[hidden] { display:none !important }
+body { margin:0; font:14px/1.5 system-ui,sans-serif; color:var(--ink); background:var(--soft) }
+h1,h2,h3,p { margin:0 }
+h2 { font-size:17px }
+h3 { font-size:14px }
+button,input,select { font:inherit; color:inherit }
+button,input[type=search],select {
+ min-height:36px; padding:5px 10px; border:1px solid #aab9c9; border-radius:6px; background:#fff;
+}
+button,summary,select { cursor:pointer }
+button:hover:not(:disabled),summary:hover { background:var(--soft) }
+button:disabled { opacity:.65; cursor:default }
+:focus-visible { outline:2px solid #1768b5; outline-offset:2px }
+.wrap { max-width:1020px; margin:auto; padding-inline:20px }
+header { background:#fff; border-bottom:1px solid var(--line) }
+.heading { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-block:12px 8px }
+.heading h1 { font-size:20px; letter-spacing:-.02em }
+.connection { font-size:12px; color:var(--sub); text-align:right }
+.connection[data-state=connected] { color:var(--good) }
+.connection[data-state=retry] { color:var(--warn) }
+nav { display:flex; gap:6px; align-items:center; overflow:auto }
+nav button { border:0; border-radius:0; border-bottom:2px solid transparent; padding-inline:12px; font-weight:600; color:var(--sub) }
+nav button[aria-selected=true] { color:var(--blue); border-bottom-color:var(--blue) }
+nav button:focus-visible { outline-offset:-3px }
+main { padding-block:16px 24px }
+.panel,.notice { background:#fff; border:1px solid var(--line); border-radius:9px; overflow-wrap:anywhere }
+.panel { padding:14px 16px }
+.notice { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; padding:8px 12px; margin-bottom:12px }
+.toolbar,.filters,.feed-foot,.headline,.replay {
+ display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center;
+}
+.toolbar input[type=search] { flex:1 1 155px; min-width:0 }
+.toolbar button[aria-expanded=true] { background:var(--soft) }
+.check { display:inline-flex; align-items:center; gap:5px; min-height:36px; white-space:nowrap; cursor:pointer }
+.filters { padding:8px 0 2px }
+.filters select { max-width:100%; min-width:0 }
+.feed-scroll { height:clamp(13rem,calc(100dvh - 15rem),60rem); overflow:auto; overflow-anchor:none; overscroll-behavior:contain; margin-top:10px; padding:3px; }
+.feed-scroll:focus-visible { outline-offset:0 }
+.older { margin:0 0 6px 3px }
+.newer { margin:6px 0 0 3px }
+.feed-foot { justify-content:space-between; padding-top:6px; min-height:42px }
+.timeline,.roster,.links,.plan-list,.task-list { list-style:none; margin:0; padding:0 }
+.timeline > li,.roster > li,.links > li,.plan-list > li,.task-list > li { border-top:1px solid var(--line) }
+.message summary { list-style:none; padding:7px 6px; display:block; border-radius:4px }
+.message summary::-webkit-details-marker { display:none }
+.message-meta { display:inline-flex; align-items:center; gap:9px }
+.headline { justify-content:space-between }
+.identity { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; min-width:0 }
+.meta { color:var(--sub); font-size:12px }
+.when { white-space:nowrap }
+.preview { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; white-space:pre-line; margin:2px 0 0 }
+.message[open] .preview { display:none }
+.message-body,.details-body { white-space:pre-wrap; margin:3px 0 10px; overflow-wrap:anywhere }
+.message-body { padding:0 6px 2px }
+.pill { display:inline-flex; align-items:center; padding:1px 6px; border-radius:4px; background:var(--soft); color:var(--sub); font-size:11px; line-height:1.5 }
+.pill[data-tone=good] { color:var(--good); background:#edf7f0 }
+.pill[data-tone=warn] { color:var(--warn); background:#fff6e5 }
+.pill[data-tone=bad] { color:var(--bad); background:#fdefef }
+.empty { color:var(--sub); padding:12px 4px }
+.group { margin-bottom:16px }
+.group:last-child { margin-bottom:0 }
+.group h2 { font-size:13px; color:var(--sub); margin-bottom:4px }
+.member-row,.disclosure { display:block; text-align:left; width:100%; border:0; border-radius:4px; padding:8px 6px }
+.member-row .meta,.disclosure .meta { display:block }
+.disclosure .identity::before,.message-meta::after {
+ content:""; align-self:center; flex:none; width:6px; height:6px;
+ border:solid var(--sub); border-width:0 1px 1px 0; transform:rotate(-45deg);
+}
+.disclosure[aria-expanded=true] .identity::before,.message[open] .message-meta::after { transform:rotate(45deg) }
+.disclosure[aria-expanded=false] strong {
+ display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden;
+}
+.plan-list,.connections { margin-top:10px }
+.task-list { margin:0 0 10px 16px }
+.task-details { display:grid; grid-template-columns:minmax(90px,auto) minmax(0,1fr); gap:4px 10px; margin:3px 6px 12px; font-size:13px }
+.task-details dt { color:var(--sub) }
+.task-details dd { margin:0; white-space:pre-wrap }
+.revision { font-family:ui-monospace,monospace; user-select:all }
+.replay { margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid var(--line) }
+.replay input { flex:1 1 130px; min-width:0; accent-color:var(--blue) }
+.replay output { flex-basis:100% }
+#view-graph .toolbar { margin-bottom:8px }
+.graph-frame { overflow:auto; border:1px solid var(--line); border-radius:6px; background:var(--soft) }
+.graph-frame svg { display:block; margin:auto }
+.links li { padding:5px 0 }
+.connections-nav { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin-top:8px }
+.sr-only { position:absolute; width:1px; height:1px; clip-path:inset(50%); overflow:hidden; white-space:nowrap }
+@media(max-width:600px) {
+ .wrap { padding-inline:11px }
+ .panel { padding:10px }
+ .filters select { width:100% }
+ .task-details { grid-template-columns:minmax(0,1fr); gap:0 }
+ .task-details dd { margin-bottom:5px }
+}
 </style>
 </head>
 <body>
 <header>
-<div class="wrap heading"><h1>Local Swarm</h1><div id="connection" class="connection" role="status">Starting…</div></div>
+<div class="wrap heading"><h1>LocalSwarm</h1><div id="connection" class="connection" role="status">Connecting to local board…</div></div>
 <nav class="wrap" role="tablist" aria-label="Workspace views">
 <button id="tab-board" type="button" role="tab" aria-controls="view-board" aria-selected="true" tabindex="0">Board</button>
 <button id="tab-members" type="button" role="tab" aria-controls="view-members" aria-selected="false" tabindex="-1">Members</button>
@@ -32,47 +119,87 @@ main{padding-top:18px!important;padding-bottom:30px!important}.card{background:w
 </nav>
 </header>
 <main class="wrap">
-<div id="notice" class="card notice" hidden><p id="notice-text"></p><div><button id="reconnect" type="button">Retry connection</button> <button id="demo" type="button">Load demo</button></div></div>
-<div class="card timer">
-<div><h2>Timeline</h2><p id="timeline-note">Scrub history without pausing collection.</p></div>
-<label class="sr-only" for="scrub">Replay position</label>
-<input id="scrub" type="range" min="0" max="0" value="0" step="1" disabled aria-describedby="timeline-note">
-<div class="controls"><button id="play" type="button" aria-label="Play replay" disabled>Play</button><button id="live" class="strong" type="button" disabled>Jump to latest</button></div>
-<output id="clock" for="scrub">No events</output>
+<div id="notice" class="notice" hidden>
+<p id="notice-text" role="status"></p>
+<div><button id="reconnect" type="button">Retry connection</button> <button id="demo" type="button">Load demo</button></div>
 </div>
-<div class="layout">
-<div>
-<section id="view-board" class="card" role="tabpanel" aria-labelledby="tab-board" tabindex="0">
-<div class="panel-head"><div><h2>Activity</h2><p>Chronological record of model and worker updates.</p></div><span id="event-count" class="key"></span></div>
-<ol id="activity" class="timeline"></ol><p id="board-empty" class="empty">No activity yet.</p>
-</section>
-<section id="view-members" class="card" role="tabpanel" aria-labelledby="tab-members" tabindex="0" hidden>
-<div class="panel-head"><div><h2>Members</h2><p id="member-hint">Current states and configured model details.</p></div></div>
-<ul id="roster" class="roster member-grid"></ul><p id="members-empty" class="empty">No members yet.</p>
-</section>
-<section id="view-graph" class="card" role="tabpanel" aria-labelledby="tab-graph" tabindex="0" hidden>
-<div class="panel-head"><div><h2>Mention graph</h2><p>Arrows run from an event author to a mentioned member. Counts include repeated mentions.</p></div></div>
-<div id="canvas" class="graph-frame" hidden></div><p id="graph-empty" class="empty">No members or mentions at this position.</p>
-<div id="edge-summary" hidden><h3 class="subhead">Connections</h3><ul id="edges" class="links"></ul></div>
-</section>
-<section id="view-plans" class="card" role="tabpanel" aria-labelledby="tab-plans" tabindex="0" hidden>
-<div class="panel-head"><div><h2>Plans</h2><p>Task execution, dependencies, and review evidence.</p></div><span id="plan-count" class="key" aria-live="polite"></span></div>
-<p id="plan-hint" class="plan-hint" hidden></p>
-<ul id="plans" class="plan-list"></ul><p id="plans-empty" class="empty">No plans recorded yet.</p>
-</section>
+<section id="view-board" class="panel" role="tabpanel" aria-labelledby="tab-board">
+<div class="toolbar">
+<label for="search" class="sr-only">Search messages</label>
+<input id="search" type="search" placeholder="Search messages">
+<button id="filters-toggle" type="button" aria-expanded="false" aria-controls="filters">Filters</button>
+<label class="check"><input id="follow" type="checkbox" checked> Follow</label>
 </div>
-<aside class="card aside" aria-labelledby="summary-title"><h2 id="summary-title">Member states</h2><p id="summary-mode">Latest event position</p><ul id="summary" class="roster"></ul><p id="summary-empty" class="empty">Waiting for members.</p></aside>
+<div id="filters" class="filters" hidden>
+<label class="sr-only" for="member-direction">Message direction</label>
+<select id="member-direction"><option value="either">From or to</option><option value="from">From</option><option value="to">To</option></select>
+<label class="sr-only" for="member-filter">Member filter</label>
+<select id="member-filter"><option value="">Anyone</option></select>
+<label class="check"><input id="all-events" type="checkbox"> All events</label>
 </div>
+<div id="feed-scroll" class="feed-scroll" role="region" aria-label="Messages" tabindex="0">
+<button id="older" type="button" class="older" hidden>Load earlier messages</button>
+<ol id="activity" class="timeline"></ol><p id="board-empty" class="empty" hidden></p>
+<button id="newer" type="button" class="newer" hidden>Load newer messages</button>
+</div>
+<div class="feed-foot"><span id="event-count" class="meta"></span><button id="latest" type="button" hidden>Jump to latest</button></div>
+</section>
+<section id="view-members" class="panel" role="tabpanel" aria-labelledby="tab-members" hidden>
+<div id="roster"></div><p id="members-empty" class="empty" hidden>No members yet.</p>
+</section>
+<section id="view-graph" class="panel" role="tabpanel" aria-labelledby="tab-graph" hidden>
+<div class="replay">
+<label for="scrub" class="sr-only">Replay position</label>
+<input id="scrub" type="range" min="0" max="0" value="0" step="1" disabled>
+<button id="play" type="button" disabled>Play</button><button id="live" type="button" disabled>Live</button>
+<output id="clock" for="scrub" class="meta">No events</output>
+</div>
+<div class="toolbar">
+<label class="sr-only" for="graph-member">Graph member</label>
+<input id="graph-member" type="search" placeholder="Filter graph by member">
+</div>
+<div id="canvas" class="graph-frame" hidden></div><p id="graph-empty" class="empty" hidden>No members or mentions at this position.</p>
+<details id="edge-summary" class="connections" hidden>
+<summary>Connections</summary><ul id="edges" class="links"></ul>
+<div class="connections-nav"><button id="previous-edges" type="button">Previous</button><span id="edge-page" class="meta"></span><button id="next-edges" type="button">Next</button></div>
+</details>
+</section>
+<section id="view-plans" class="panel" role="tabpanel" aria-labelledby="tab-plans" hidden>
+<p id="plan-hint" class="meta" role="status" hidden></p>
+<ul id="plans" class="plan-list"></ul><p id="plans-empty" class="empty" hidden></p>
+</section>
 </main>
 <script>
 "use strict";
 (() => {
 const byId=id=>document.getElementById(id);
-const $={connection:byId("connection"),notice:byId("notice"),note:byId("notice-text"),retry:byId("reconnect"),demo:byId("demo"),scrub:byId("scrub"),play:byId("play"),live:byId("live"),clock:byId("clock"),activity:byId("activity"),eventCount:byId("event-count"),boardEmpty:byId("board-empty"),roster:byId("roster"),membersEmpty:byId("members-empty"),memberHint:byId("member-hint"),canvas:byId("canvas"),graphEmpty:byId("graph-empty"),edgeSummary:byId("edge-summary"),edges:byId("edges"),summary:byId("summary"),summaryEmpty:byId("summary-empty"),summaryMode:byId("summary-mode")};
+const $={
+ connection:byId("connection"), notice:byId("notice"), note:byId("notice-text"),
+ retry:byId("reconnect"), demo:byId("demo"),
+ scrub:byId("scrub"), play:byId("play"), live:byId("live"), clock:byId("clock"),
+ activity:byId("activity"), eventCount:byId("event-count"), boardEmpty:byId("board-empty"),
+ feed:byId("feed-scroll"), search:byId("search"), filters:byId("filters"), filtersToggle:byId("filters-toggle"),
+ direction:byId("member-direction"), member:byId("member-filter"), allEvents:byId("all-events"),
+ follow:byId("follow"), older:byId("older"), newer:byId("newer"), latest:byId("latest"),
+ roster:byId("roster"), membersEmpty:byId("members-empty"),
+ canvas:byId("canvas"), graphEmpty:byId("graph-empty"), edgeSummary:byId("edge-summary"), edges:byId("edges"),
+ graphMember:byId("graph-member"), previousEdges:byId("previous-edges"), nextEdges:byId("next-edges"), edgePage:byId("edge-page"),
+};
 const tabNames=["board","members","graph","plans"];
-let plans=[],planSupported=false,planRefresh=null,planInFlight=false,planDirty=false,planStale=false,planPoll=null;
+const pageSize=50;
+const maxMessages=5*pageSize;
 const canConnect=location.protocol==="http:"||location.protocol==="https:" ? ["localhost","127.0.0.1","[::1]"].includes(location.hostname) : false;
-let eventList=[],eventIds=new Set(),roster=new Map(),snapshotSeq=0,position=null,source=null,retryTimer=null,replayTimer=null,connectEpoch=0,retryDelay=800,isDemo=false,activeTab="board";
+const requests=new Map();
+let plans=[],planStale=false,openPlan=null,openTask=null,expandedTask=null;
+let feedRows=new Map(),filterNames=[];
+let feed=emptyFeed();
+let graph=null,graphIndex=null,graphThrough=null,graphOffset=0,graphNext=null;
+let source=null,retryTimer=null,replayTimer=null,refreshTimer=null,interactionTimer=null,pollTimer=null;
+let lastSeen=0,retryDelay=800,refreshPending=false,bootstrapped=false,suspended=false,isDemo=false,activeTab="board";
+
+function emptyFeed(){
+ return {items:[],through:0,total:0,pending:0,older:false,newer:false,scroll:0,atEnd:true,loaded:false};
+}
 const clean=v=>typeof v==="string"?v.trim():"";
 function node(tag,value,cls){const n=document.createElement(tag);if(value!==undefined)n.textContent=value;if(cls)n.className=cls;return n;}
 function el(tag,ns){const n=document.createElementNS("http://www.w3.org/2000/svg",tag); for(const [k,v] of Object.entries(ns||{}))n.setAttribute(k,String(v));return n;}
@@ -82,9 +209,9 @@ function seqOf(v){if(typeof v!=="number"&&(typeof v!=="string"||!/^[0-9]+$/.test
 function normalEvent(raw){
  if(!raw||typeof raw!=="object")return null;
  const seq=seqOf(raw.seq); if(seq===null)return null;
- return {seq,actor:clean(raw.actor),mentions:Array.isArray(raw.mentions)?raw.mentions.map(clean).filter(Boolean):[],content:typeof raw.content==="string"?raw.content:"",status:clean(raw.status),created_at:clean(raw.created_at),kind:clean(raw.kind)};
+ return {seq,actor:clean(raw.actor),mentions:Array.isArray(raw.mentions)?raw.mentions.map(clean).filter(Boolean):[],content:typeof raw.content==="string"?raw.content:"",status:clean(raw.status),created_at:clean(raw.created_at),kind:clean(raw.kind),source:clean(raw.source)};
 }
-function normalMember(raw){const name=clean(raw?.name);return name?{name,role:clean(raw.role),status:raw.active?"Running":clean(raw.status),backend:clean(raw.backend),model:clean(raw.model),effort:clean(raw.reasoning_effort)}:null;}
+function normalMember(raw){const name=clean(raw?.name);return name?{name,role:clean(raw.role),status:raw.active?"Running":clean(raw.status),backend:clean(raw.backend),model:clean(raw.model),effort:clean(raw.reasoning_effort),lastMessage:seqOf(raw.last_message)}:null;}
 function labelText(v){return typeof v==="object"&&v?clean(v.message)||clean(v.reason)||clean(v.summary)||clean(v.id)||clean(v.name):clean(v);}
 function labels(v){return (Array.isArray(v)?v:[v]).map(labelText).filter(Boolean);}
 function normalTask(t){
@@ -93,93 +220,173 @@ function normalTask(t){
  return {id,brief:clean(t.brief)||clean(t.goal)||clean(t.title),criterion:clean(t.criterion),waiting:labels(t.waiting_on),attempt:Number.isInteger(t.attempt)&&t.attempt>0?String(t.attempt):"",state:clean(t.state)||clean(t.status),needs:labels(t.needs??t.dependencies??t.depends_on),worker:labelText(t.worker??t.assignee),verifier:labelText(t.verifier??t.reviewer),notes:[...new Set([...labels(t.blockers??t.blocker),...labels(t.diagnostic??t.reason??t.error)])],revision,evidence:labelText(t.evidence),integrated:typeof t.integrated==="boolean"?t.integrated:null};
 }
 function setPlans(s){
- planSupported=Array.isArray(s?.plans);planStale=false;
- plans=(planSupported?s.plans:[]).flatMap(p=>{
+ planStale=false;
+ plans=(Array.isArray(s?.plans)?s.plans:[]).flatMap(p=>{
   const id=clean(p?.id)||clean(p?.plan_id);if(!id)return [];
   return [{id,goal:clean(p.goal)||clean(p.title),state:clean(p.state)||clean(p.status),tasks:(Array.isArray(p.tasks)?p.tasks:[]).map(normalTask).filter(Boolean)}];
  });
 }
-function lastSeq(){return eventList.length?eventList[eventList.length-1].seq:0;}
-function addEvent(raw){
- const e=normalEvent(raw);if(!e||eventIds.has(e.seq))return false;
- eventIds.add(e.seq);let i=eventList.length;while(i>0&&eventList[i-1].seq>e.seq)i--;
- eventList.splice(i,0,e);return true;
-}
-function seed(s){
- eventList=[];eventIds=new Set();roster=new Map();
- for(const raw of s.members){const m=normalMember(raw);if(m)roster.set(m.name,m);}
- for(const raw of s.events)addEvent(raw);
- snapshotSeq=lastSeq();position=null;setPlans(s);
-}
 function timeString(value){if(!value)return "";const d=new Date(value);return Number.isNaN(d.getTime())?value:d.toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit"});}
-function viewAt(at){
- const items=at===null?eventList:eventList.filter(e=>e.seq<=at);
- const states=new Map(Array.from(roster,([id,m])=>[id,{...m,status:at===null?m.status:"",firstSeen:null,lastSeen:null}]));
- const outgoing=new Map();
- function use(name){if(!states.has(name))states.set(name,{name,role:"",backend:"",model:"",status:"",firstSeen:null,lastSeen:null});return states.get(name);}
- for(const e of items){
-  if(!e.actor)continue;
-  const actor=use(e.actor);if(actor.firstSeen===null)actor.firstSeen=e.seq; actor.lastSeen=e.seq;
-  function update(member,status){if(status&&(at!==null||e.seq>snapshotSeq||!roster.get(member.name)?.status))member.status=status;}
-  const spawned=e.actor==="operator"&&e.status.toLowerCase()==="spawned";
-  if(!spawned)update(actor,e.status);
-  for(const target of e.mentions){const mentioned=use(target);if(mentioned.firstSeen===null)mentioned.firstSeen=e.seq;if(spawned)update(mentioned,e.status);const k=JSON.stringify([e.actor,target]); const edge=outgoing.get(k)||{from:e.actor,to:target,count:0};edge.count++;outgoing.set(k,edge);}
- }
- return {items,states:[...states.values()],edges:[...outgoing.values()]};
-}
-function currentIndex(){if(position===null)return eventList.length;return eventList.findIndex(e=>e.seq===position)+1;}
 function statusMessage(message,state=""){ $.connection.textContent=message;$.connection.dataset.state=state; }
 function notice(message,allowRetry=false,allowDemo=true){$.notice.hidden=!message;$.note.textContent=message||"";$.retry.hidden=!allowRetry;$.demo.hidden=!allowDemo;}
 function activate(name,focus=false){
+ if(activeTab!==name){
+  cancelView();
+  if(activeTab==="plans")expandedTask=null;
+ }
  activeTab=name;document.title="Local Swarm · "+name[0].toUpperCase()+name.slice(1);
  for(const t of tabNames){const selected=name===t, tab=byId("tab-"+t);tab.setAttribute("aria-selected",String(selected));tab.tabIndex=selected?0:-1;byId("view-"+t).hidden=!selected;}
  if(focus)byId("tab-"+name).focus();
- updatePlanPolling();if(name==="plans"&&source)schedulePlanRefresh();
- render();
+ refreshView();
+ updatePolling();
 }
 function updateTimeline(){
- const i=currentIndex(), count=eventList.length, e=i?eventList[i-1]:null;
- $.scrub.max=count;$.scrub.value=i;$.scrub.disabled=!count;$.play.disabled=!count;$.live.disabled=position===null;
- const msg=position===null ? count?"Latest · "+count+" event"+(count===1?"":"s"):"No events" : e ? "Replay "+i+" of "+count+" · #"+e.seq+(e.created_at?" · "+timeString(e.created_at):"") : "Replay start · Before first event";
+ const count=graph?.total??0,index=graphIndex??count;
+ $.scrub.max=count;$.scrub.value=index;$.scrub.disabled=!count;$.play.disabled=!count;$.live.disabled=graphThrough===null;
+ const sequence=graph?.index===index&&graph.seq?" · #"+graph.seq+(graph.created_at?" · "+timeString(graph.created_at):""):"";
+ const msg=graphIndex===null ? count?"Latest · "+count+" event"+(count===1?"":"s"):"No events" :
+  index?"Replay "+index+" of "+count+sequence : "Replay start · Before first event";
  $.clock.textContent=msg;$.scrub.setAttribute("aria-valuetext",msg);
- $.play.textContent=replayTimer?"Pause":i===count?"Replay":"Play";$.play.setAttribute("aria-label",replayTimer?"Pause replay":i===count?"Replay from beginning":"Play replay");
+ $.play.textContent=playing?"Pause":index===count?"Replay":"Play";$.play.setAttribute("aria-label",playing?"Pause replay":index===count?"Replay from beginning":"Play replay");
 }
-function renderBoard(items){
- $.activity.replaceChildren();
- $.boardEmpty.hidden=items.length>0;
- $.boardEmpty.textContent=position===-1?"Before the first recorded event.":"No recorded activity. New events will appear here.";
- $.eventCount.textContent=items.length+" event"+(items.length===1?"":"s");
- const frag=document.createDocumentFragment();
- for(const e of items){
-  const item=node("li"), head=node("div",undefined,"headline"), id=node("div",undefined,"identity");
-  id.append(node("strong",e.actor||"Unattributed"),node("span","#"+e.seq+(e.kind?" · "+e.kind:""),"meta"));
-  if(e.status)id.append(pill(e.status));head.append(id);
-  const when=node("time",timeString(e.created_at),"meta");if(e.created_at&&!Number.isNaN(new Date(e.created_at).getTime()))when.dateTime=e.created_at;head.append(when);
-  item.append(head);if(e.content)item.append(node("p",e.content,"body"));
-  if(e.mentions.length)item.append(node("p","Mentions: "+e.mentions.join(", "),"mentions"));frag.append(item);
+const attentionStatuses=new Set(["blocked","failed","interrupted","limited","error","cancelled","canceled"]);
+const completeStatuses=new Set(["done","complete","completed","passed","success"]);
+function updateMemberFilter(names){
+ const sorted=Array.from(new Set([...names,$.member.value].filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+ if(sorted.length===filterNames.length&&sorted.every((name,i)=>name===filterNames[i]))return;
+ const previous=$.member.value;
+ $.member.replaceChildren(new Option("Anyone",""),...sorted.map(name=>new Option(name,name)));
+ $.member.value=previous;
+ filterNames=sorted;
+}
+function messageRow(e){
+ const item=node("li"),details=node("details",undefined,"message"),summary=node("summary");
+ const head=node("div",undefined,"headline"), identity=node("div",undefined,"identity");
+ identity.append(node("strong",e.actor||"Unattributed"));
+ if(e.mentions.length)identity.append(node("span","→ "+e.mentions.join(", "),"meta"));
+ if(e.status)identity.append(pill(e.status));
+ head.append(identity);
+ const stamp=timeString(e.created_at), when=node("time",stamp,"meta when"), end=node("span",undefined,"message-meta");
+ if(stamp){
+  if(!Number.isNaN(new Date(e.created_at).getTime()))when.dateTime=e.created_at;
+  end.append(when);
  }
- $.activity.append(frag);
+ head.append(end);
+ summary.append(head);
+ if(e.content)summary.append(node("p",e.content.length>300?e.content.slice(0,300)+"…":e.content,"preview"));
+ details.append(summary,node("p","#"+e.seq+" · "+(e.source||e.kind||"Recorded event"),"meta message-body"));
+ if(e.content)details.append(node("p",e.content,"message-body"));
+ item.append(details);
+ return item;
+}
+function syncFeed(items){
+ const next=new Map(items.map(e=>[e.seq,feedRows.get(e.seq)||messageRow(e)]));
+ for(const [seq,row] of feedRows){
+  if(!next.has(seq))row.remove();
+ }
+ let sibling=$.activity.firstElementChild;
+ for(const row of next.values()){
+  if(row===sibling)sibling=sibling.nextElementSibling;
+  else $.activity.insertBefore(row,sibling);
+ }
+ feedRows=next;
+}
+function renderBoard({pin=false}={}){
+ const all=$.allEvents.checked,filterCount=Number(Boolean($.member.value))+Number(all);
+ $.filtersToggle.textContent=filterCount?"Filters ("+filterCount+")":"Filters";
+ const top=$.feed.getBoundingClientRect().top;
+ const anchor=Array.from(feedRows.values()).find(row=>row.getBoundingClientRect().bottom>top);
+ const inset=anchor?anchor.getBoundingClientRect().top-top:0;
+ const previousFocus=document.activeElement;
+ $.older.hidden=!feed.older;
+ $.newer.hidden=!feed.newer;
+ syncFeed(feed.items);
+ if(pin)$.feed.scrollTop=$.feed.scrollHeight;
+ else if(anchor?.isConnected)$.feed.scrollTop+=anchor.getBoundingClientRect().top-top-inset;
+ else $.feed.scrollTop=feed.scroll;
+ feed.scroll=$.feed.scrollTop;
+ feed.atEnd=atFeedEnd();
+ $.boardEmpty.hidden=feed.items.length>0;
+ $.boardEmpty.textContent=feed.error?"Messages could not be loaded.":
+  !feed.loaded?"Loading messages…":feed.pending?"New messages are available.":
+  $.search.value.trim()||filterCount?"No matching messages.":"No messages yet.";
+ $.eventCount.textContent=feed.loaded?
+  feed.items.length+" of "+(feed.total+feed.pending)+(all?" events":" messages"):"";
+ updateLatest();
+ if([$.older,$.newer,$.latest].includes(previousFocus)&&previousFocus.hidden){
+  $.feed.focus({preventScroll:true});
+ }
+}
+function atFeedEnd(){
+ return $.feed.scrollHeight-$.feed.clientHeight-$.feed.scrollTop<=10;
+}
+function updateLatest(){
+ $.latest.textContent=feed.pending?"Jump to latest ("+feed.pending+" new)":"Jump to latest";
+ $.latest.hidden=!feed.pending&&!feed.newer&&atFeedEnd();
+}
+function setFiltersOpen(open){
+ $.filters.hidden=!open;
+ $.filtersToggle.setAttribute("aria-expanded",String(open));
+}
+function resetFeed(delay=0){
+ abortRequest("feed");
+ clearInteraction();
+ feed=emptyFeed();
+ if(activeTab!=="board")return;
+ renderBoard();
+ if(delay)interactionTimer=setTimeout(()=>{interactionTimer=null;loadFeed("latest");},delay);
+ else loadFeed("latest");
 }
 function renderMembers(states){
- $.roster.replaceChildren();$.membersEmpty.hidden=states.length>0;
- $.memberHint.textContent=position===null?"Latest states and configured model details.":"States reconstructed from events up to the selected point; current roster metadata is shown when available.";
+ const groups=new Map([["Coordinator",[]],["Needs attention",[]],["Active",[]],["Standing by",[]],["Other members",[]]]);
+ const focusName=$.roster.contains(document.activeElement)?document.activeElement.dataset.member:"";
+ let focusButton=null;
  for(const m of states){
-  const li=node("li",undefined,"member"),h=node("div",undefined,"headline");
-  h.append(node("strong",m.name,"body"),pill(m.status));li.append(h);
-  if(m.role)li.append(node("p",m.role,"mini"));
-  if(m.backend||m.model)li.append(node("p",[m.backend,m.model,m.effort].filter(Boolean).join(" / "),"mini"));
-  if(m.lastSeen!==null)li.append(node("p","Last authored event #"+m.lastSeen,"mini"));$.roster.append(li);
+  const coordinator=m.name.toLowerCase()==="coordinator"||m.role.toLowerCase()==="coordinator";
+  const state=m.status.toLowerCase();
+  const group=coordinator?"Coordinator":attentionStatuses.has(state)?"Needs attention":
+   state==="running"?"Active":completeStatuses.has(state)||state==="waiting"||state==="idle"?"Standing by":"Other members";
+  groups.get(group).push(m);
  }
+ const frag=document.createDocumentFragment();
+ for(const [label,members] of groups){
+  if(!members.length)continue;
+  const section=node("section",undefined,"group"),list=node("ul",undefined,"roster");
+  section.append(node("h2",label),list);
+  for(const m of members){
+   const item=node("li"),button=node("button",undefined,"member-row"),head=node("span",undefined,"headline");
+   button.type="button";button.dataset.member=m.name;
+   head.append(node("strong",m.name),pill(m.status));
+   button.append(head);
+   const model=[m.role,m.backend,m.model,m.effort].filter(Boolean).join(" · ");
+   if(model)button.append(node("span",model,"meta"));
+   if(m.lastMessage!==null)button.append(node("span","Latest message #"+m.lastMessage,"meta"));
+   button.addEventListener("click",()=>{
+    updateMemberFilter([...filterNames,m.name]);
+    $.search.value="";$.direction.value="either";$.member.value=m.name;
+    setFiltersOpen(true);feed=emptyFeed();activate("board",true);
+   });
+   if(m.name===focusName)focusButton=button;
+   item.append(button);list.append(item);
+  }
+  frag.append(section);
+ }
+ $.membersEmpty.hidden=frag.childNodes.length>0;
+ $.roster.replaceChildren(frag);
+ focusButton?.focus({preventScroll:true});
 }
-function renderSummary(states){
- $.summary.replaceChildren();$.summaryEmpty.hidden=states.length>0;
- $.summaryMode.textContent=position===null?"Latest event position":"Historical event position";
- for(const m of states){const li=node("li");li.append(node("span",m.name),pill(m.status));$.summary.append(li);}
-}
-function renderGraph(states,edges){
+function renderGraph(data){
  $.canvas.replaceChildren();$.edges.replaceChildren();
- const visible=states.filter(m=>position===null||m.firstSeen!==null);
- $.canvas.hidden=!visible.length;$.graphEmpty.hidden=!!visible.length;$.edgeSummary.hidden=!edges.length;
+ const {nodes:visible,edges,connections}=data;
+ $.canvas.hidden=!visible.length;$.graphEmpty.hidden=!!visible.length;$.edgeSummary.hidden=!connections.length&&!graphOffset;
+ $.graphEmpty.textContent=$.graphMember.value.trim()?"No matching members or mentions.":"No members or mentions at this position.";
+ for(const edge of connections){
+  $.edges.append(node("li",edge.from+" → "+edge.to+" · "+edge.count+" mention"+(edge.count===1?"":"s")));
+ }
+ $.previousEdges.disabled=graphOffset===0;$.nextEdges.disabled=graphNext===null;
+ const count=data.connections_total??0;
+ $.edgePage.textContent=connections.length?(graphOffset+1)+"–"+(graphOffset+connections.length)+" of "+count:"No connections";
+ $.previousEdges.hidden=count<=pageSize;$.nextEdges.hidden=count<=pageSize;
  if(!visible.length)return;
  const columns=Math.min(4,Math.ceil(Math.sqrt(visible.length))),w=Math.max(390,columns*155),h=Math.max(145,Math.ceil(visible.length/columns)*90+40),mids=new Map();
  const svg=el("svg",{width:w,height:h,viewBox:"0 0 "+w+" "+h,"aria-label":"Member mention graph",role:"img"});
@@ -200,7 +407,6 @@ function renderGraph(states,edges){
    const path=el("path",{d,fill:"none",stroke:"#476e8e","stroke-width":Math.min(3.5,1+Math.log2(edge.count)),"marker-end":"url(#arrowhead)"});
    const title=el("title");title.textContent=edge.from+" → "+edge.to+" × "+edge.count;path.append(title);svg.append(path);
   }
-  $.edges.append(node("li",edge.from+" → "+edge.to+" · "+edge.count+" mention"+(edge.count===1?"":"s")));
  }
  for(const m of visible){const {x,y}=mids.get(m.name), group=el("g"),title=el("title");
   title.textContent=m.name+(m.status?" · "+m.status:"");group.append(title,el("rect",{x:x-59,y:y-19,width:118,height:38,rx:6,fill:"#fff",stroke:"#7697b6"}));
@@ -211,49 +417,292 @@ function renderGraph(states,edges){
  }
  $.canvas.append(svg);
 }
-function renderPlans(){
- const list=byId("plans"),empty=byId("plans-empty"),hint=byId("plan-hint"),count=byId("plan-count");
- list.replaceChildren();empty.hidden=plans.length>0;count.textContent=plans.length?plans.length+" "+(plans.length===1?"plan":"plans"):"";
- empty.textContent=planSupported?"No plans recorded yet.":isDemo?"This sample has no plans.":"No plan snapshot available.";
- const notes=[];if(position!==null)notes.push("Plans show the latest saved state while the activity timeline is in replay.");if(planStale)notes.push("Plan refresh failed; showing the last saved state.");
- hint.hidden=!notes.length;hint.textContent=notes.join(" ");
- for(const p of plans){
-  const item=node("li",undefined,"plan-card"),header=node("div",undefined,"headline");
-  header.append(node("h3",p.goal||p.id),pill(p.state.replaceAll("_"," ")));item.append(header);
-  if(p.goal)item.append(node("div",p.id,"meta"));
-  const tasks=node("ol",undefined,"task-list");
-  for(const t of p.tasks){
-   const row=node("li"),line=node("div",undefined,"headline"),identity=node("div",undefined,"identity"),details=node("dl",undefined,"task-details");
-   identity.append(node("strong",t.id));if(t.brief)identity.append(node("span",t.brief,"body"));
-   line.append(identity,pill(t.state.replaceAll("_"," ")));row.append(line);
-   const attribute=(key,value,cls)=>{if(value)details.append(node("dt",key),node("dd",value,cls));};
-   attribute("Depends on",t.needs.join(", "));attribute("Waiting on",t.waiting.join(", "));attribute("Criterion",t.criterion);attribute("Attempt",t.attempt);attribute("Worker",t.worker);attribute("Verifier",t.verifier);attribute("Blockers / notes",t.notes.join("\n"));attribute(t.state==="blocked"?"Blocker evidence":"Review evidence",t.evidence);attribute("Review revision",t.revision,"revision");if(t.state==="passed"&&t.integrated!==null)attribute("Integration",t.integrated?"Integrated":"Awaiting integration");
-   if(details.childNodes.length)row.append(details);tasks.append(row);
+function disclosure(key,title,state,caption,expanded,action){
+ const button=node("button",undefined,"disclosure"),head=node("span",undefined,"headline"),identity=node("span",undefined,"identity");
+ button.type="button";button.dataset.disclosure=key;button.setAttribute("aria-expanded",String(expanded));
+ identity.append(node("strong",title));head.append(identity,pill(state.replaceAll("_"," ")));button.append(head);
+ if(caption)button.append(node("span",caption,"meta"));
+ button.addEventListener("click",action);
+ return button;
+}
+function taskDetails(t){
+ const details=node("dl",undefined,"task-details");
+ const fields=[
+  ["Brief",t.brief],["Depends on",t.needs.join(", ")],["Waiting on",t.waiting.join(", ")],
+  ["Criterion",t.criterion],["Attempt",t.attempt],["Worker",t.worker],["Verifier",t.verifier],
+  ["Blockers / notes",t.notes.join("\n")],[t.state==="blocked"?"Blocker evidence":"Review evidence",t.evidence],
+  ["Review revision",t.revision,"revision"],
+ ];
+ for(const [label,value,cls] of fields){
+  if(value)details.append(node("dt",label),node("dd",value,cls));
+ }
+ return details.childNodes.length?details:node("p","No task details recorded.","empty");
+}
+function integration(t){
+ return t.state==="passed"&&t.integrated!==null?(t.integrated?"Integrated":"Awaiting integration"):"";
+}
+function addTasks(item,p){
+ if(!p.tasks.length){
+  item.append(node("p","No tasks recorded.","empty"));
+  return;
+ }
+ const tasks=node("ol",undefined,"task-list");
+ for(const t of p.tasks){
+  const row=node("li"),expanded=openTask===t.id;
+  const caption=[integration(t),t.brief?.split("\n")[0].slice(0,120)].filter(Boolean).join(" · ");
+  row.append(disclosure("task-"+t.id,t.id,t.state,caption,expanded,()=>{
+   abortRequest("task");
+   openTask=expanded?null:t.id;expandedTask=null;renderPlans();
+   if(openTask)loadTask();
+  }));
+  if(expanded){
+   if(expandedTask?.task)row.append(taskDetails(expandedTask.task));
+   else if(expandedTask?.error){
+    const retry=node("button","Retry task details");retry.type="button";retry.addEventListener("click",loadTask);
+    row.append(node("p","Task details could not be loaded.","empty"),retry);
+   }else row.append(node("p","Loading task details…","empty"));
   }
-  if(p.tasks.length)item.append(tasks);else item.append(node("p","No tasks recorded.","meta"));
-  list.append(item);
+  tasks.append(row);
+ }
+ item.append(tasks);
+}
+function renderPlans(){
+ const list=byId("plans"),empty=byId("plans-empty"),hint=byId("plan-hint");
+ const focusKey=list.contains(document.activeElement)?document.activeElement.dataset.disclosure:"";
+ const frag=document.createDocumentFragment();
+ empty.hidden=plans.length>0;
+ empty.textContent=planStale?"No plan summary available.":"No plans recorded yet.";
+ hint.hidden=!planStale;
+ hint.textContent=planStale?"Plan refresh failed. Showing the last saved state.":"";
+ const summaries=plans.map(plan=>({
+  plan, passed:plan.tasks.filter(t=>t.state==="passed").length,
+  blocked:plan.tasks.filter(t=>t.state==="blocked").length,
+  awaiting:plan.tasks.filter(t=>t.state==="passed"&&t.integrated===false).length,
+ }));
+ summaries.sort((a,b)=>Number(Boolean(b.blocked||b.awaiting))-Number(Boolean(a.blocked||a.awaiting)));
+ for(const {plan:p,passed,blocked,awaiting} of summaries){
+  const item=node("li"), expanded=openPlan===p.id;
+  const counts=[passed+" of "+p.tasks.length+" passed"];
+  if(blocked)counts.push(blocked+" blocked");
+  if(awaiting)counts.push(awaiting+" awaiting integration");
+  item.append(disclosure("plan-"+p.id,p.goal||p.id,p.state,counts.join(" · "),expanded,()=>{
+   abortRequest("task");
+   openPlan=expanded?null:p.id;openTask=null;expandedTask=null;renderPlans();
+  }));
+  if(expanded){
+   if(p.goal)item.append(node("p",p.id,"meta details-body"));
+   addTasks(item,p);
+  }
+  frag.append(item);
+ }
+ list.replaceChildren(frag);
+ if(focusKey){
+  for(const button of list.querySelectorAll("button")){
+   if(button.dataset.disclosure===focusKey){button.focus({preventScroll:true});break;}
+  }
  }
 }
-function render(){
- updateTimeline();
- const v=viewAt(position);
- if(activeTab==="board")renderBoard(v.items);
- if(activeTab==="members")renderMembers(v.states);
- if(activeTab==="graph")renderGraph(v.states,v.edges);
- if(activeTab==="plans")renderPlans();
- renderSummary(v.states);
+
+function abortRequest(key){
+ const controller=requests.get(key);
+ requests.delete(key);
+ controller?.abort();
 }
-function stopReplay(){if(replayTimer!==null){clearInterval(replayTimer);replayTimer=null;}}
-function gotoIndex(i){position=i===0?-1:eventList[i-1]?.seq??null;render();}
+function clearInteraction(){
+ clearTimeout(interactionTimer);interactionTimer=null;
+}
+function cancelView(){
+ for(const key of requests.keys())abortRequest(key);
+ clearTimeout(refreshTimer);refreshTimer=null;refreshPending=false;
+ clearInteraction();
+ clearInterval(pollTimer);pollTimer=null;
+ stopReplay();
+}
+async function request(key,endpoint,params,apply,failed){
+ if(suspended||(!canConnect&&!isDemo))return;
+ abortRequest(key);
+ const controller=new AbortController();
+ requests.set(key,controller);
+ try{
+  const urlParams=new URLSearchParams();
+  for(const [name,value] of Object.entries(params)){
+   if(value!==null&&value!==undefined&&value!=="")urlParams.set(name,String(value));
+  }
+  let data;
+  if(isDemo)data=demoResponse(endpoint,urlParams);
+  else{
+   const suffix=urlParams.size?"?"+urlParams:"";
+   const response=await fetch("/board/"+endpoint+suffix,{
+    cache:"no-store",credentials:"same-origin",redirect:"error",signal:controller.signal,
+   });
+   if(!response.ok)throw new Error("Board data unavailable");
+   data=await response.json();
+  }
+  if(!controller.signal.aborted)apply(data);
+ }catch(error){
+  if(!controller.signal.aborted)failed?.(error);
+ }finally{
+  if(requests.get(key)===controller){
+   requests.delete(key);
+   if(refreshPending)scheduleRefresh();
+  }
+ }
+}
+function queryOptions(){
+ return {q:$.search.value.trim(),member:$.member.value,direction:$.direction.value,all:$.allEvents.checked?1:null};
+}
+function mergeEvents(a,b){
+ const bySeq=new Map([...a,...b].map(event=>[event.seq,event]));
+ return Array.from(bySeq.values()).sort((x,y)=>x.seq-y.seq);
+}
+function loadFeed(mode){
+ const query=queryOptions();
+ if(mode==="older"){query.before=feed.items[0]?.seq;query.through=feed.through;}
+ else if(mode==="newer"){query.after=feed.items.at(-1)?.seq;query.through=feed.through;}
+ else if(mode==="live")query.after=feed.through;
+ else if(mode==="count"){query.after=feed.through;query.through=feed.through;}
+ return request("feed","messages",query,page=>{
+  const automatic=mode==="live"||mode==="live-latest";
+  if(automatic&&(!$.follow.checked||!feed.atEnd||!atFeedEnd()||feed.newer)){
+   feed.pending=Math.max(0,page.total+page.pending-feed.total);
+   renderBoard();
+   return;
+  }
+  if(mode==="live"&&page.next_after!==null){loadFeed("live-latest");return;}
+  const items=page.events.map(normalEvent).filter(Boolean).slice(0,pageSize);
+  if(feed.error&&source?.readyState===EventSource.OPEN)notice("");
+  feed.error=false;
+  feed.loaded=true;feed.total=page.total;feed.pending=page.pending;
+  if(!bootstrapped)lastSeen=Math.max(lastSeen,page.latest_seq);
+  const browsingOlder=mode==="older",paging=mode==="newer"||browsingOlder;
+  if(mode==="latest"||mode==="live-latest"){
+   feed.items=items;
+   feed.older=page.next_before!==null;
+   feed.newer=false;
+  }else if(paging||mode==="live"){
+   const merged=mergeEvents(feed.items,items);
+   const overflow=merged.length>maxMessages;
+   feed.items=browsingOlder?merged.slice(0,maxMessages):merged.slice(-maxMessages);
+   if(browsingOlder){
+    feed.older=page.next_before!==null;
+    feed.newer=feed.newer||overflow;
+   }else {
+    feed.older=feed.older||overflow;
+    feed.newer=paging&&page.next_after!==null;
+   }
+  }
+  feed.through=page.through;
+  renderBoard({pin:mode==="latest"||automatic});
+ },()=>{
+  feed.error=true;
+  renderBoard();
+  if(!bootstrapped){
+   statusMessage("Local board offline");
+   notice("Open the private board URL from the local service.",true);
+  }else if(mode!=="count")notice("Messages could not be refreshed. Showing the last received results.",true,false);
+ });
+}
+function loadMembers(render=true){
+ return request(render?"members":"names","members",{},data=>{
+  if(!bootstrapped)lastSeen=Math.max(lastSeen,data.latest_seq);
+  updateMemberFilter(data.names);
+  if(render)renderMembers(data.members.map(normalMember).filter(Boolean));
+ },()=>{
+  if(render){$.membersEmpty.hidden=false;$.membersEmpty.textContent="Members could not be loaded.";}
+ });
+}
+function loadPlans(){
+ return request("plans","plans",{},data=>{
+  if(!bootstrapped)lastSeen=Math.max(lastSeen,data.latest_seq);
+  setPlans(data);
+  renderPlans();
+  if(openPlan&&openTask&&!requests.has("task"))loadTask();
+ },()=>{
+  planStale=true;renderPlans();
+ });
+}
+function loadTask(){
+ if(!openPlan||!openTask)return;
+ return request("task","task",{plan_id:openPlan,task_id:openTask},data=>{
+  expandedTask={task:normalTask(data.task)};renderPlans();
+ },()=>{
+  expandedTask={error:true};renderPlans();
+ });
+}
+function loadGraph(){
+ const member=$.graphMember.value.trim();
+ return request("graph","graph",{index:graphIndex,through:graphThrough,offset:graphOffset,member},data=>{
+  if(!bootstrapped)lastSeen=Math.max(lastSeen,data.latest_seq??data.through);
+  graph=data;graphNext=data.next_offset;
+  if(graphIndex!==null)graphIndex=data.index;
+  updateTimeline();renderGraph(data);
+  if(playing){
+   if(graphIndex>=data.total){stopReplay();updateTimeline();}
+   else replayTimer=setTimeout(()=>gotoIndex(graphIndex+1),750);
+  }
+ },()=>{
+  stopReplay();updateTimeline();
+  $.graphEmpty.hidden=false;$.graphEmpty.textContent="The graph could not be loaded.";
+ });
+}
+function refreshView(){
+ if(suspended||interactionTimer!==null)return;
+ if(activeTab==="board"){
+  if(!feed.loaded)return loadFeed("latest");
+  if(feed.through>=lastSeen&&feed.error===false&&!isDemo){
+   renderBoard();return;
+  }
+  return loadFeed($.follow.checked&&feed.atEnd&&!feed.newer?"live":"count");
+ }
+ if(activeTab==="members")return loadMembers();
+ if(activeTab==="plans")return loadPlans();
+ updateTimeline();
+ return loadGraph();
+}
+function refreshKey(){
+ return activeTab==="board"?"feed":activeTab;
+}
+function scheduleRefresh(){
+ if(suspended||document.hidden||(!source&&!isDemo))return;
+ if(activeTab==="graph"&&(graphIndex!==null||graphOffset>0))return;
+ refreshPending=true;
+ if(refreshTimer!==null||requests.has(refreshKey())||interactionTimer!==null)return;
+ refreshTimer=setTimeout(()=>{
+  refreshTimer=null;
+  if(requests.has(refreshKey())||interactionTimer!==null)return;
+  refreshPending=false;
+  refreshView();
+ },120);
+}
+function updatePolling(){
+ clearInterval(pollTimer);pollTimer=null;
+ if(source&&!document.hidden&&!suspended&&activeTab==="plans"){
+  pollTimer=setInterval(scheduleRefresh,5000);
+ }
+}
+let playing=false;
+function stopReplay(){
+ playing=false;clearTimeout(replayTimer);replayTimer=null;
+}
+function gotoIndex(index){
+ clearInteraction();
+ clearTimeout(replayTimer);replayTimer=null;
+ graphThrough=graphThrough??graph?.through??0;
+ graphIndex=index;graphOffset=0;
+ updateTimeline();loadGraph();
+}
 function toggleReplay(){
- if(replayTimer!==null){stopReplay();render();return;}
- if(!eventList.length)return;
- if(currentIndex()>=eventList.length)gotoIndex(0);
- replayTimer=setInterval(()=>{
-  const next=currentIndex()+1;
-  if(next>=eventList.length){gotoIndex(eventList.length);stopReplay();render();}
-  else gotoIndex(next);
- },750);render();
+ if(playing){stopReplay();updateTimeline();return;}
+ if(!graph?.total)return;
+ const index=graphIndex??graph.total;
+ playing=true;
+ gotoIndex(index>=graph.total?0:index);
+}
+function pageConnections(offset){
+ stopReplay();clearInteraction();
+ graphOffset=offset;
+ if(graphIndex===null)graphThrough=offset===0?null:(graph?.through??null);
+ updateTimeline();loadGraph();
 }
 for(const [i,n] of tabNames.entries()){
  const t=byId("tab-"+n);t.addEventListener("click",()=>activate(n));
@@ -263,76 +712,139 @@ for(const [i,n] of tabNames.entries()){
  });
 }
 $.scrub.addEventListener("input",()=>{stopReplay();gotoIndex(Number($.scrub.value));});
-$.live.addEventListener("click",()=>{stopReplay();position=null;render();});
+$.live.addEventListener("click",()=>{stopReplay();clearInteraction();graphIndex=null;graphThrough=null;graphOffset=0;updateTimeline();loadGraph();});
 $.play.addEventListener("click",toggleReplay);
-function updatePlanPolling(){
- if(planPoll!==null){clearInterval(planPoll);planPoll=null;}
- if(canConnect&&!isDemo&&activeTab==="plans"&&source)planPoll=setInterval(schedulePlanRefresh,5000);
-}
-function disconnect(){if(source){source.close();source=null;}if(retryTimer!==null){clearTimeout(retryTimer);retryTimer=null;}
- if(planRefresh!==null){clearTimeout(planRefresh);planRefresh=null;}
- planDirty=false;updatePlanPolling();
-}
-function schedulePlanRefresh(){
- if(!canConnect||isDemo)return;
- planDirty=true;if(planInFlight||planRefresh!==null)return;
- const epoch=connectEpoch;
- planRefresh=setTimeout(async()=>{
-  planRefresh=null;if(epoch!==connectEpoch)return;
-  planInFlight=true;planDirty=false;
-  try{
-   const response=await fetch("/snapshot",{cache:"no-store",credentials:"same-origin",redirect:"error"});
-   if(!response.ok)throw new Error("Snapshot unavailable");
-   const snap=await response.json();
-   if(epoch===connectEpoch){setPlans(snap);if(activeTab==="plans")renderPlans();}
-  }catch(_){if(epoch===connectEpoch){planStale=true;if(activeTab==="plans")renderPlans();}}
-  finally{planInFlight=false;if(planDirty)schedulePlanRefresh();}
- },250);
-}
-function handleStream(message){
- if(isDemo)return;
- try{const raw=JSON.parse(message.data);if(addEvent(raw)){render();schedulePlanRefresh();}else if(message.type==="plan")schedulePlanRefresh();}catch(_){/* Ignore unsupported non-event data. */}
+$.graphMember.addEventListener("input",()=>{
+ stopReplay();abortRequest("graph");graphOffset=0;
+ if(graphIndex===null)graphThrough=null;
+ clearTimeout(interactionTimer);
+ interactionTimer=setTimeout(()=>{interactionTimer=null;loadGraph();},180);
+});
+$.previousEdges.addEventListener("click",()=>pageConnections(Math.max(0,graphOffset-pageSize)));
+$.nextEdges.addEventListener("click",()=>{if(graphNext!==null)pageConnections(graphNext);});
+$.filtersToggle.addEventListener("click",()=>{
+ setFiltersOpen($.filters.hidden);
+ if(!$.filters.hidden)loadMembers(false);else abortRequest("names");
+});
+$.search.addEventListener("input",()=>resetFeed(180));
+for(const control of [$.direction,$.member,$.allEvents])control.addEventListener("change",()=>resetFeed());
+$.feed.addEventListener("scroll",()=>{
+ if(activeTab!=="board")return;
+ feed.atEnd=atFeedEnd();feed.scroll=$.feed.scrollTop;updateLatest();
+});
+$.older.addEventListener("click",()=>loadFeed("older"));
+$.newer.addEventListener("click",()=>loadFeed("newer"));
+$.latest.addEventListener("click",()=>loadFeed("latest"));
+$.follow.addEventListener("change",()=>{if($.follow.checked&&feed.atEnd&&!feed.newer&&feed.pending)loadFeed("live");});
+function disconnect(){
+ if(source){source.close();source=null;}
+ clearTimeout(retryTimer);retryTimer=null;
+ updatePolling();
 }
 function openStream(){
- if(!canConnect||isDemo)return;
- const epoch=connectEpoch;
- try{const own=new EventSource("/events?since="+encodeURIComponent(lastSeq()));source=own;updatePlanPolling();
-  own.onopen=()=>{if(source!==own)return;retryDelay=800;statusMessage("Live · local feed","connected");notice("");schedulePlanRefresh();};
-  const ingest=message=>{if(source===own)handleStream(message);};
-  own.onmessage=ingest;own.addEventListener("event",ingest);own.addEventListener("activity",ingest);own.addEventListener("plan",ingest);
-  own.onerror=()=>{if(source!==own)return;disconnect();statusMessage("Reconnecting…","retry");notice("Local feed interrupted. Showing saved events while reconnecting.",true);retryTimer=setTimeout(()=>{if(epoch===connectEpoch){retryTimer=null;openStream();}},retryDelay);retryDelay=Math.min(12000,retryDelay*2);};
- }catch(_){statusMessage("Live feed unavailable","retry");notice("Live streaming is unavailable in this browser. Retry to refresh the snapshot.",true);}
+ if(!canConnect||isDemo||suspended||source)return;
+ const own=new EventSource("/events?compact=1&since="+encodeURIComponent(lastSeen));
+ source=own;
+ own.onopen=()=>{
+  if(source!==own)return;
+  retryDelay=800;statusMessage("Local board live","connected");notice("");
+  updatePolling();scheduleRefresh();
+ };
+ own.onmessage=message=>{
+  if(source!==own)return;
+  try{
+   const seq=seqOf(JSON.parse(message.data).seq);
+   if(seq!==null&&seq>lastSeen){lastSeen=seq;scheduleRefresh();}
+  }catch(_){/* Ignore malformed notifications. */}
+ };
+ own.onerror=()=>{
+  if(source!==own)return;
+  disconnect();statusMessage("Reconnecting to local board…","retry");
+  notice("Showing the last received results.",true);
+  retryTimer=setTimeout(()=>{retryTimer=null;openStream();},retryDelay);
+  retryDelay=Math.min(12000,retryDelay*2);
+ };
 }
+let connectAttempt=0;
 async function connect(){
- if(!canConnect)return;
- const epoch=++connectEpoch;
- disconnect();stopReplay();if(isDemo){isDemo=false;seed({events:[],members:[]});render();}
- statusMessage("Connecting…");notice("");
- try{
-  const response=await fetch("/snapshot",{cache:"no-store",credentials:"same-origin",redirect:"error"});
-  if(!response.ok)throw new Error("Snapshot unavailable");
-  const snap=await response.json();
-  if(!snap||!Array.isArray(snap.events)||!Array.isArray(snap.members))throw new Error("Unexpected snapshot");
-  if(epoch!==connectEpoch)return;
-  seed(snap);render();openStream();
- }catch(_){if(epoch!==connectEpoch)return;statusMessage("Offline");notice("No local snapshot is available. Start the local server or inspect the sample workspace.",true);}
+ if(!canConnect||suspended)return;
+ const attempt=++connectAttempt;
+ disconnect();cancelView();
+ if(isDemo){
+  isDemo=false;bootstrapped=false;lastSeen=0;
+  feed=emptyFeed();plans=[];openPlan=null;openTask=null;expandedTask=null;
+  graph=null;graphIndex=null;graphThrough=null;graphOffset=0;
+ }
+ statusMessage("Connecting to local board…");notice("");
+ await refreshView();
+ if(attempt!==connectAttempt||suspended||isDemo)return;
+ if(activeTab==="board"&&!feed.loaded)return;
+ bootstrapped=true;openStream();
+}
+const samplePlans=[{plan_id:"sample",goal:"Verify a local release note",status:"passed",tasks:[
+ {id:"find-note",brief:"Locate the sample release note.",status:"passed",worker:"Reader",integrated:true},
+ {id:"check-date",brief:"Check the date.",status:"passed",dependencies:["find-note"],verifier:"Checker",integrated:true},
+]}];
+const sampleMembers=[{name:"Coordinator",role:"Demo coordinator",status:"Complete"},{name:"Reader",role:"Demo worker",status:"Complete"},{name:"Checker",role:"Demo reviewer",status:"Complete"}];
+const sampleEvents=[
+ {seq:1,actor:"Coordinator",mentions:["Reader"],content:"Find the release note in the local sample folder.",status:"Running",created_at:"2026-01-01T09:00:00Z",kind:"task"},
+ {seq:2,actor:"Reader",mentions:["Checker"],content:"Found a candidate note. Check its stated date.",status:"Running",created_at:"2026-01-01T09:00:03Z",kind:"handoff"},
+ {seq:3,actor:"Checker",mentions:["Reader"],content:"The sample note matches the requested date.",status:"Complete",created_at:"2026-01-01T09:00:07Z",kind:"review"},
+ {seq:4,actor:"Reader",mentions:["Coordinator"],content:"Returned the verified sample note.",status:"Complete",created_at:"2026-01-01T09:00:10Z",kind:"result"},
+ {seq:5,actor:"Coordinator",mentions:[],content:"Sample task complete.",status:"Complete",created_at:"2026-01-01T09:00:12Z",kind:"result"},
+];
+function demoResponse(endpoint,params){
+ const latest_seq=sampleEvents.length;
+ if(endpoint==="plans")return {plans:samplePlans,latest_seq};
+ if(endpoint==="task")return {task:samplePlans[0].tasks.find(task=>task.id===params.get("task_id"))};
+ if(endpoint==="members")return {members:sampleMembers,names:sampleMembers.map(member=>member.name),latest_seq};
+ if(endpoint==="graph"){
+  const index=params.has("index")?Number(params.get("index")):latest_seq;
+  const member=(params.get("member")||"").toLowerCase();
+  const items=sampleEvents.slice(0,index);
+  const edges=items.flatMap(e=>e.mentions.map(to=>({from:e.actor,to,count:1})))
+   .filter(edge=>[edge.from,edge.to].some(name=>name.toLowerCase().includes(member)));
+  const names=new Set(edges.flatMap(edge=>[edge.from,edge.to]));
+  const nodes=index===0?[]:sampleMembers.filter(m=>names.has(m.name)||(!member&&index===latest_seq));
+  return {index,total:latest_seq,through:latest_seq,seq:index,created_at:items.at(-1)?.created_at,
+   nodes,edges,connections:edges,connections_total:edges.length,next_offset:null};
+ }
+ const q=(params.get("q")||"").toLowerCase(),member=params.get("member"),direction=params.get("direction");
+ const after=Number(params.get("after")||0),before=Number(params.get("before")||latest_seq+1);
+ const through=Number(params.get("through")??latest_seq);
+ const matches=sampleEvents.filter(e=>e.content.toLowerCase().includes(q)&&
+  (!member||(direction!=="to"&&e.actor===member)||(direction!=="from"&&e.mentions.includes(member))));
+ const events=matches.filter(e=>e.seq<=through&&e.seq>after&&e.seq<before);
+ return {events,latest_seq,through,total:matches.filter(e=>e.seq<=through).length,
+  pending:matches.filter(e=>e.seq>through).length,next_after:null,next_before:null};
 }
 $.retry.addEventListener("click",connect);
 $.demo.addEventListener("click",()=>{
- ++connectEpoch;disconnect();stopReplay();isDemo=true;
- seed({plans:[{id:"sample",goal:"Verify a local release note",status:"Complete",tasks:[{id:"find-note",brief:"Locate the sample release note.",state:"Complete",worker:"Reader"},{id:"check-date",brief:"Check the date.",state:"Complete",needs:["find-note"],verifier:"Checker"}]}],members:[{name:"Coordinator",role:"Demo coordinator",status:"Complete"},{name:"Reader",role:"Demo worker",status:"Complete"},{name:"Checker",role:"Demo reviewer",status:"Complete"}],
- events:[
-  {seq:1,actor:"Coordinator",mentions:["Reader"],content:"Find the release note in the local sample folder.",status:"Running",created_at:"2026-01-01T09:00:00Z",kind:"task"},
-  {seq:2,actor:"Reader",mentions:["Checker"],content:"Found a candidate note. Check its stated date.",status:"Running",created_at:"2026-01-01T09:00:03Z",kind:"handoff"},
-  {seq:3,actor:"Checker",mentions:["Reader"],content:"The sample note matches the requested date.",status:"Complete",created_at:"2026-01-01T09:00:07Z",kind:"review"},
-  {seq:4,actor:"Reader",mentions:["Coordinator"],content:"Returned the verified sample note.",status:"Complete",created_at:"2026-01-01T09:00:10Z",kind:"result"},
-  {seq:5,actor:"Coordinator",mentions:[],content:"Sample task complete.",status:"Complete",created_at:"2026-01-01T09:00:12Z",kind:"result"}
- ]});
- statusMessage("Demo · external connections off");notice("Sample data only. This demo will not connect or send commands.",canConnect,false);render();
+ ++connectAttempt;disconnect();cancelView();isDemo=true;bootstrapped=false;lastSeen=0;
+ feed=emptyFeed();plans=[];openPlan=null;openTask=null;expandedTask=null;
+ graph=null;graphIndex=null;graphThrough=null;graphOffset=0;
+ $.search.value="";$.member.value="";$.allEvents.checked=false;$.follow.checked=true;setFiltersOpen(false);
+ statusMessage("Demo · external connections off");notice("Sample data only. This demo will not connect or send commands.",canConnect,false);
+ activate("board");
 });
-window.addEventListener("pagehide",()=>{++connectEpoch;disconnect();stopReplay();});window.addEventListener("pageshow",e=>{if(e.persisted&&!isDemo&&canConnect)connect();});
-render();
-if(canConnect)connect();else{statusMessage("Offline preview");notice("Open through the loopback server for live data, or load an optional sample.",false);}
+document.addEventListener("visibilitychange",()=>{
+ if(document.hidden){
+  clearTimeout(refreshTimer);refreshTimer=null;
+  abortRequest("plans");abortRequest("task");
+ }else scheduleRefresh();
+ updatePolling();
+});
+window.addEventListener("pagehide",()=>{
+ suspended=true;++connectAttempt;disconnect();cancelView();
+});
+window.addEventListener("pageshow",event=>{
+ if(event.persisted){suspended=false;if(!isDemo&&canConnect)connect();else refreshView();}
+});
+renderBoard();
+if(canConnect)connect();else{
+ feed.loaded=true;renderBoard();
+ statusMessage("Offline preview");notice("Open through the loopback server for live data, or load an optional sample.",false);
+}
 })();
 </script>
 </body>

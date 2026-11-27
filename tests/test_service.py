@@ -1,5 +1,6 @@
 """Exercise the real local HTTP and MCP surfaces with the mock runner."""
 import json
+from http.cookiejar import CookieJar
 import os
 from pathlib import Path
 import subprocess
@@ -9,7 +10,7 @@ import threading
 import time
 import unittest
 from urllib.error import HTTPError
-from urllib.request import Request, build_opener, ProxyHandler
+from urllib.request import Request, build_opener, HTTPCookieProcessor, ProxyHandler
 
 from engine import Engine
 from runner import command, parse_result, run_with_launcher
@@ -18,6 +19,48 @@ from http.server import ThreadingHTTPServer
 
 
 class ServiceTest(unittest.TestCase):
+    def test_browser_cookie_keeps_two_checkouts_open(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            engines = [Engine(root / f"{index}.db", root, mock_runner) for index in range(2)]
+            servers = [ThreadingHTTPServer(("127.0.0.1", 0), make_handler(Service(
+                engine, "owner", f"view-{index}"))) for index, engine in enumerate(engines)]
+            threads = [threading.Thread(target=server.serve_forever, daemon=True) for server in servers]
+            for thread in threads:
+                thread.start()
+            try:
+                http = build_opener(ProxyHandler({}), HTTPCookieProcessor(CookieJar()))
+                urls = [f"http://127.0.0.1:{server.server_port}" for server in servers]
+                for index, url in enumerate(urls):
+                    with http.open(url + f"/open/view-{index}") as response:
+                        self.assertEqual(response.status, 200)
+                for url in urls:
+                    with http.open(url + "/board/messages") as response:
+                        self.assertEqual(response.status, 200)
+            finally:
+                for server, thread, engine in zip(servers, threads, engines):
+                    server.shutdown()
+                    server.server_close()
+                    thread.join()
+                    engine.close()
+
+    def test_idle_lifecycle_respects_requests_and_lease(self):
+        class IdleEngine:
+            def has_work(self):
+                return False
+
+        app = Service(IdleEngine(), "owner", "view", idle_seconds=30, clock=lambda: 10)
+        self.assertFalse(app.should_drain(0))
+        self.assertTrue(app.admit())
+        self.assertFalse(app.should_drain(60))
+        app.release()
+        app.lease({"id": "a" * 32})
+        self.assertFalse(app.should_drain(74))
+        self.assertFalse(app.should_drain(75))
+        self.assertFalse(app.should_drain(104))
+        self.assertTrue(app.should_drain(105))
+        self.assertFalse(app.admit())
+
     def test_bridge_roles_replay_and_http(self):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)

@@ -1,6 +1,7 @@
 """Deterministic DAG driver for bounded, operator-approved local coding work."""
 from __future__ import annotations
 
+from collections import OrderedDict
 from contextlib import contextmanager
 import hashlib
 import json
@@ -15,6 +16,9 @@ class Orchestrator:
     def __init__(self, db_path, engine):
         self.engine = engine
         self._lock = threading.RLock()
+        self._head = None
+        self._ancestry = OrderedDict()
+        self._git_view_depth = 0
         self._db = sqlite3.connect(db_path, isolation_level=None, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.executescript("""
@@ -159,19 +163,71 @@ class Orchestrator:
         return self.engine._git(path, *args).strip()
 
     def _member_head(self, member):
+        self.engine.ensure_worktree(member)
         return self._git(member["repo_path"], "rev-parse", "HEAD")
 
+    def refresh_head(self):
+        with self._lock:
+            try:
+                head = self._git(self.engine.repo_path, "rev-parse", "HEAD")
+            except (OSError, RuntimeError):
+                head = None
+            if head != self._head:
+                self._ancestry.clear()
+                self._head = head
+            return head
+
+    @contextmanager
+    def git_view(self, refresh=True):
+        with self._lock:
+            if refresh and not self._git_view_depth:
+                self.refresh_head()
+            self._git_view_depth += 1
+            try:
+                yield
+            finally:
+                self._git_view_depth -= 1
+
     def _merged(self, revision):
-        if not revision:
+        if not revision or not self._head:
             return False
+        if revision in self._ancestry:
+            self._ancestry.move_to_end(revision)
+            return self._ancestry[revision]
         try:
-            self._git(self.engine.repo_path, "merge-base", "--is-ancestor", revision, "HEAD")
-            return True
+            self._git(self.engine.repo_path, "merge-base", "--is-ancestor", revision, self._head)
+            integrated = True
         except RuntimeError:
-            return False
+            integrated = False
+        self._ancestry[revision] = integrated
+        if len(self._ancestry) > 1024:
+            self._ancestry.popitem(last=False)
+        return integrated
+
+    def depends_on_git(self):
+        with self.git_view(refresh=False):
+            return any(row["status"] == "pending" or not self._merged(row["revision"])
+                       for row in self._db.execute("SELECT status,revision FROM tasks WHERE status IN ('pending','passed')"))
+
+    def archive_candidates(self):
+        with self.git_view():
+            candidates = {}
+            for row in self._db.execute("SELECT plan_id,id,attempt,revision FROM tasks WHERE status='passed'"):
+                revision = row["revision"]
+                if not self._merged(revision):
+                    continue
+                worker, verifier = self._names(row["plan_id"], row["id"], row["attempt"])
+                reports = self._db.execute(
+                    """SELECT actor,verdict FROM reports
+                       WHERE plan_id=? AND id=? AND attempt=? AND revision=?""",
+                    (row["plan_id"], row["id"], row["attempt"], revision),
+                )
+                if {(worker, "ready"), (verifier, "pass")} <= {tuple(report) for report in reports}:
+                    candidates.update({worker: revision, verifier: revision})
+            return candidates
 
     def summary(self, plan_id, *, compact=False):
-        with self._lock:
+        with self.git_view():
             plan, spec, rows = self._plan(plan_id)
             tasks = []
             merged = {}
@@ -205,7 +261,7 @@ class Orchestrator:
                     "coordinator": json.loads(plan["coordinator"] or "null")}
 
     def plans(self):
-        with self._lock:
+        with self.git_view():
             return [self.summary(r[0]) for r in self._db.execute("SELECT plan_id FROM plans ORDER BY plan_id")]
 
     def _change(self, r, **updates):
@@ -309,7 +365,7 @@ class Orchestrator:
 
     def tick(self):
         """Advance only explicit states; runner execution remains Engine.tick's job."""
-        with self._lock:
+        with self.git_view():
             members = self._member_map()
             changed = []
             for (plan_id,) in self._db.execute("SELECT plan_id FROM plans ORDER BY plan_id").fetchall():
@@ -319,6 +375,8 @@ class Orchestrator:
                     r = rows[t["id"]]
                     before = (r["status"], r["attempt"])
                     worker, verifier = self._names(plan_id, t["id"], r["attempt"])
+                    if r["status"] == "blocked" or (r["status"] == "passed" and self._merged(r["revision"])):
+                        continue
                     with self._transaction():
                         if r["status"] == "pending":
                             blocked = [d for d in t["dependencies"] if rows[d]["status"] == "blocked"]
@@ -377,7 +435,11 @@ class Orchestrator:
                                                 raise ValueError("worker revision changed after verification")
                                         self._change(r, status="passed", evidence=r["report_evidence"])
                                     except (RuntimeError, ValueError) as exc:
-                                        self._retry(t, r, f"Verified work needs a new attempt: {exc}")
+                                        self.refresh_head()
+                                        if self._merged(r["revision"]):
+                                            self._change(r, status="passed", evidence=r["report_evidence"])
+                                        else:
+                                            self._retry(t, r, f"Verified work needs a new attempt: {exc}")
                         elif r["status"] == "passed" and not self._merged(r["revision"]):
                             m = self._ready_member(worker, members)
                             if not m["active"]:
@@ -386,7 +448,9 @@ class Orchestrator:
                                     if candidate["revision"] != r["revision"]:
                                         raise ValueError("reviewed worker revision changed")
                                 except (RuntimeError, ValueError) as exc:
-                                    self._retry(t, r, f"Rebuild and re-review on current base: {exc}")
+                                    self.refresh_head()
+                                    if not self._merged(r["revision"]):
+                                        self._retry(t, r, f"Rebuild and re-review on current base: {exc}")
                     if before != (r["status"], r["attempt"]):
                         changed.append({"plan_id": plan_id, "task_id": r["id"], "status": r["status"], "attempt": r["attempt"]})
             return changed

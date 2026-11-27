@@ -10,6 +10,8 @@ Workers receive a brief and a Git worktree. An addressed post queues input for t
 
 Replay reads persisted events in sequence. The mention graph projects message traffic, not task dependencies or tool actions. The Plans tab shows the latest saved task state separately. Scrubbing the timeline never invokes a model or replays a side effect.
 
+The scheduler scans each worker's unclaimed sequence range once and only loads addressed rows. A durable claim advances through the range the scheduler inspected. New posts and completed turns wake the scheduler. It also checks the target Git revision for changes made outside the service. Browser requests use paginated message and graph views and separate member and plan summaries. The legacy snapshot remains available for existing consumers.
+
 Named recipients and `@plan:<id>` expand to concrete board recipients before a post is stored. Plan group routing includes spawned members of the current unfinished attempts. The main coordinator reads compact plan state and its paginated inbox. The inbox includes explicit board messages addressed to that actor. Scheduler output and peer-only handoffs stay in the full history.
 
 ## Task plans and evidence
@@ -31,6 +33,8 @@ A worker's proposed Git revision and its target base are explicit. A verifier ca
 Run the local tests with `python -m unittest discover -s tests -v` (or `python3` where that is the interpreter name). Windows uses an exclusive byte-range lock for the board database and launches native `.exe` or `.py` worker wrappers without a shell.
 
 On Windows, a CLI that emits `turn.completed` and stalls while exiting is reaped after a short shutdown grace period. The scheduler records the completed turn after the process tree is stopped. A worker without a complete provider receipt still fails on timeout.
+
+The Windows host starts checkout services on demand. Live HTTP requests, active MCP leases, outstanding worker work, and tasks that can advance via Git keep an idle-enabled service awake. Worktree archiving tracks eligibility in the worker record and pins the integrated revision under `refs/localswarm/archived/` before asking Git to remove the worktree. The archive state can be reconciled after interruption. A later turn restores the worktree and uses the saved provider session and budget.
 
 ## Related systems
 

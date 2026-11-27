@@ -9,11 +9,41 @@ import threading
 import time
 
 
+def desktop_codex_root():
+    local = os.environ.get("LOCALAPPDATA")
+    return Path(local) / "OpenAI" / "Codex" / "bin" if local else None
+
+
+def is_managed_codex(executable, root=None):
+    root = desktop_codex_root() if root is None else root
+    path = Path(executable).expanduser()
+    return root is not None and path.name.lower() == "codex.exe" and path.parent.parent == root
+
+
+def newest_desktop_codex(root):
+    if root is None or not root.is_dir():
+        return None
+    root = root.resolve()
+    candidates = []
+    for directory in root.iterdir():
+        binary = directory / "codex.exe"
+        try:
+            if binary.is_file() and binary.resolve() == binary and os.access(binary, os.X_OK):
+                candidates.append((binary.stat().st_mtime_ns, directory.name, binary))
+        except OSError:
+            continue  # An update can remove a version while it is being inspected.
+    return max(candidates)[2] if candidates else None
+
+
 def resolve_codex(executable=None):
     """Resolve a trusted native CLI without running Windows shell wrappers."""
     chosen = executable
     if os.name == "nt":
-        chosen = chosen or os.environ.get("LOCALSWARM_CODEX_EXE")
+        configured = os.environ.get("LOCALSWARM_CODEX_EXE")
+        if not chosen and configured and not is_managed_codex(configured):
+            chosen = configured
+        if not chosen:
+            chosen = newest_desktop_codex(desktop_codex_root())
         if not chosen:
             directories = (Path(part.strip('"')) for part in os.get_exec_path())
             chosen = next((directory / "codex.exe" for directory in directories
@@ -131,20 +161,25 @@ def _model_capabilities(executable, timeout):
 
 
 class CodexCatalog:
-    def __init__(self, executable, *, ttl=60, timeout=15):
+    def __init__(self, executable, *, ttl=60, timeout=15, resolver=None):
         self.executable = executable
+        self.resolver = resolver
         self.ttl, self.timeout = ttl, timeout
         self._lock = threading.Lock()
         self._cached = None
         self._expires = 0
         self._checked_missing = set()
+        self._cached_executable = None
 
-    def models(self, required=()):
+    def models(self, required=(), *, executable=None):
         required = set(required)
         with self._lock:
-            stale = self._cached is None or time.monotonic() >= self._expires
+            binary = executable or (self.resolver() if self.resolver else self.executable)
+            stale = (self._cached is None or binary != self._cached_executable
+                     or time.monotonic() >= self._expires)
             if stale or required.difference(self._cached, self._checked_missing):
-                self._cached = _model_capabilities(self.executable, self.timeout)
+                self._cached = _model_capabilities(binary, self.timeout)
+                self._cached_executable = binary
                 if stale:
                     self._expires = time.monotonic() + self.ttl
                     self._checked_missing.clear()

@@ -1,11 +1,13 @@
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
 
 from engine import Engine
 from orchestrator import Orchestrator
+from swarm import Service
 
 
 def git(path, *args):
@@ -89,6 +91,68 @@ class OrchestratorTest(unittest.TestCase):
         self.pump(lambda: self.task("second")["status"] == "passed")
         self.assertFalse((self.repo / "second.txt").exists())
         self.assertEqual(self.orch.plans()[0]["status"], "passed")
+
+    def test_archive_retains_dirty_tree_and_restores_interrupted_archive(self):
+        self.orch.create("p", [item("first")])
+        self.pump(lambda: self.task("first")["status"] == "passed")
+        self.assertEqual(self.orch.archive_candidates(), {})
+        task = self.task("first")
+        self.integrate("first")
+        builder, verifier = task["worker"], task["verifier"]
+        member = self.eng._get(builder)
+        build_path = Path(member["repo_path"])
+        verify_path = Path(self.eng._get(verifier)["repo_path"])
+        (self.repo / ".git" / "info" / "exclude").write_text("ignored.tmp\n")
+        (verify_path / "ignored.tmp").write_text("preserve this")
+
+        candidates = self.orch.archive_candidates()
+        self.assertEqual(candidates, {builder: task["revision"], verifier: task["revision"]})
+        self.eng.maintain_worktrees(candidates, 100, 7)
+        self.eng.maintain_worktrees(candidates, 106, 7)
+        self.assertTrue(build_path.is_dir())
+        self.eng.maintain_worktrees(candidates, 107, 7, dry_run=True)
+        self.assertTrue(build_path.is_dir())
+        self.eng.maintain_worktrees(candidates, 107, 7)
+        self.assertFalse(build_path.exists())
+        self.assertTrue((verify_path / "ignored.tmp").is_file())
+        self.assertEqual(git(self.repo, "rev-parse", self.eng._archive_ref(member)), task["revision"])
+        self.assertTrue(self.task("first")["integrated"])
+
+        # Crash after git removed the worktree but before its last DB update.
+        self.eng._db.execute("UPDATE workers SET archive_state='archiving' WHERE name=?", (builder,))
+        self.eng.close()
+        self.orch.close()
+        resumed = []
+
+        def resume(req):
+            resumed.append((req["session_id"], req["repo_path"], git(req["repo_path"], "rev-parse", "HEAD")))
+            return {"session_id": req["session_id"], "status": "waiting"}
+
+        self.eng = Engine(self.root / "eng.sqlite", self.repo, resume)
+        self.orch = Orchestrator(self.root / "plan.sqlite", self.eng)
+        self.eng.post("coordinator", [builder], "Check one follow-up")
+        self.pump(lambda: bool(resumed) and not self.eng._get(builder)["active"])
+        self.assertEqual(resumed, [(member["session_id"], str(build_path), task["revision"])])
+        self.assertEqual(self.eng._get(builder)["archive_state"], "live")
+
+    def test_external_git_integration_wakes_dependency(self):
+        self.orch.create("p", [item("second", dependencies=["first"]), item("first")])
+        self.pump(lambda: self.task("first")["status"] == "passed")
+        self.assertEqual(self.task("second")["status"], "pending")
+        app = Service(self.eng, "owner", "view", orchestrator=self.orch, archive_days=0)
+        thread = threading.Thread(target=app.schedule)
+        thread.start()
+        try:
+            git(self.repo, "merge", "--ff-only", self.task("first")["revision"])
+            deadline = time.monotonic() + 4
+            while time.monotonic() < deadline and self.task("second")["status"] != "passed":
+                time.sleep(.02)
+            self.assertEqual(self.task("second")["status"], "passed")
+            self.assertFalse(app.scheduler_failed)
+        finally:
+            app.stop.set()
+            self.eng.changed.set()
+            thread.join()
 
     def test_rework_restart_and_duplicate_reports(self):
         self.orch.create("p", [item("redo")])
