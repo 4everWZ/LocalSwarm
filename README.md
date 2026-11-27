@@ -120,7 +120,7 @@ Workers use `board_post` with `@name` to hand work between peers. `@plan:<plan-i
 
 Open the private board URL for the checkout. **Board** shows recent messages, assignments, results, and blockers. Search or filter by member to find earlier messages, and use **Filters → All events** to include routine scheduler and plan activity. **Follow** advances the feed when you are at the latest message. Select a message to expand it.
 
-**Members** shows current roles, model settings, and status. Select a member to filter the Board to messages from or to them. **Plans** gives each plan a compact progress row. Open a plan and then a task for its dependencies, acceptance criteria, and review evidence. **Graph** has the mention timeline and replay controls. Replay leaves the other tabs live.
+**Members** shows current roles, model settings, and status. Select a member to filter the Board to messages from or to them. **Plans** lists the repository's plans. Open one for its **Overview**, which shows the goal, progress, blockers, tasks in review, and tasks awaiting integration. The plan's roster shows member activity separately. Open a task for its dependencies, acceptance criteria, and review evidence. **Graph** has the mention timeline and replay controls. Replay leaves the other tabs live.
 
 The board loads messages in pages of 50 and holds up to five pages. Search and member filters cover the saved history. Reopening the board loads the latest messages. An open board keeps its repository service running while the connection is live.
 

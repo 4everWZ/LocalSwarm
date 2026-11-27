@@ -84,6 +84,13 @@ def last_statuses(db, position, names=None):
     """, args))
 
 
+def member_status(member, statuses):
+    active = bool(member.get("active"))
+    status = statuses.get(member["name"])
+    member.update(active=active, status="running" if active else None if status == "running" else status)
+    return member
+
+
 class BoardAPI:
     def __init__(self, app):
         self.engine = app.engine
@@ -108,6 +115,7 @@ class BoardAPI:
             "/board/messages": self.messages,
             "/board/members": self.members,
             "/board/plans": self.plans,
+            "/board/plan": self.plan,
             "/board/task": self.task,
             "/board/graph": self.graph,
         }
@@ -189,12 +197,7 @@ class BoardAPI:
             statuses = last_statuses(db, latest)
             messages = dict(db.execute(f"SELECT actor, max(seq) FROM events WHERE {MESSAGE} GROUP BY actor"))
             for name, member in members.items():
-                active = bool(member.get("active"))
-                status = statuses.get(name)
-                if status == "running" and not active:
-                    status = None
-                member.update(active=active, status="running" if active else status,
-                              last_message=messages.get(name))
+                member_status(member, statuses)["last_message"] = messages.get(name)
         return dict(members=list(members.values()), names=names, latest_seq=latest)
 
     def plans(self, _query):
@@ -211,16 +214,45 @@ class BoardAPI:
         with self.read_db() as db:
             return dict(plans=plans, latest_seq=latest_sequence(db))
 
-    def task(self, query):
+    def selected_plan(self, query):
         plan_id = parameter(query, "plan_id")
+        if self.orchestrator is None or not plan_id:
+            raise KeyError("unknown plan")
+        try:
+            return self.orchestrator.summary(plan_id)
+        except ValueError:
+            raise KeyError("unknown plan") from None
+
+    def plan(self, query):
+        plan = self.selected_plan(query)
+        tasks = []
+        for task in plan["tasks"]:
+            summary = {key: task[key] for key in ("id", "status", "integrated", "waiting_on", "worker", "verifier")}
+            if task["status"] == "blocked" and task["evidence"]:
+                line = " ".join(task["evidence"].split())
+                summary["blocker"] = line if len(line) <= 220 else line[:219] + "…"
+            tasks.append(summary)
+        actors = sorted({task[role] for task in tasks for role in ("worker", "verifier")})
+        with self.read_db() as db:
+            latest = latest_sequence(db)
+            members = []
+            if actors:
+                placeholders = ", ".join("?" for _ in actors)
+                members = [dict(row) for row in db.execute(f"""
+                    SELECT name, role, backend, model, reasoning_effort, active, archive_state
+                    FROM workers WHERE name IN ({placeholders}) ORDER BY name
+                """, actors)]
+                statuses = last_statuses(db, latest, [member["name"] for member in members])
+                for member in members:
+                    member_status(member, statuses)
+        return {"plan": {key: plan[key] for key in ("plan_id", "goal", "status", "coordinator")} |
+                {"tasks": tasks}, "members": members, "latest_seq": latest}
+
+    def task(self, query):
         task_id = parameter(query, "task_id")
-        if self.orchestrator is None or not plan_id or not task_id:
+        if not task_id:
             raise KeyError("unknown task")
-        with self.orchestrator.git_view(refresh=True):
-            try:
-                plan = self.orchestrator.summary(plan_id)
-            except ValueError:
-                raise KeyError("unknown plan") from None
+        plan = self.selected_plan(query)
         for task in plan["tasks"]:
             if task["id"] == task_id:
                 return {"task": task}

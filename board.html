@@ -85,6 +85,33 @@ main { padding-block:16px 24px }
  display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden;
 }
 .plan-list,.connections { margin-top:10px }
+.plan-link .identity::before { transform:rotate(-45deg) }
+.overview-toolbar { display:flex; align-items:center; gap:12px }
+.overview-toolbar h2 { font-size:14px; color:var(--sub) }
+.overview-goal { padding:13px 0; border-bottom:1px solid var(--line) }
+.overview-goal h3 { font-size:21px; line-height:1.25 }
+.overview-goal p { white-space:pre-wrap }
+.overview-progress { margin:12px 0 16px }
+.overview-progress p { margin-bottom:6px }
+.progress-track { display:flex; height:6px; overflow:hidden; border-radius:6px; background:var(--soft) }
+.progress-integrated { background:var(--good) }
+.progress-verified { background:#5486bc }
+.overview-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(200px,29%); gap:16px; align-items:start }
+.overview-roster { background:var(--soft); border-radius:6px; padding:10px 12px }
+.overview-roster li { padding:7px 0 }
+.overview-roster .meta { display:block }
+.overview-roster .identity { justify-content:space-between }
+.overview-area h3 { margin-bottom:7px }
+.overview-group { margin-bottom:13px }
+.overview-group h4 { font-size:13px; margin:0 0 4px }
+.overview-group .task-list { margin-left:0 }
+.overview-group .disclosure .meta {
+ display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden;
+}
+.overview-closed > summary { font-size:13px; font-weight:600; padding:5px 0 }
+.overview-closed > .overview-group { margin-top:4px }
+.overview-alert { padding:7px 0 0 }
+@media(max-width:700px) { .overview-grid { grid-template-columns:minmax(0,1fr) } }
 .task-list { margin:0 0 10px 16px }
 .task-details { display:grid; grid-template-columns:minmax(90px,auto) minmax(0,1fr); gap:4px 10px; margin:3px 6px 12px; font-size:13px }
 .task-details dt { color:var(--sub) }
@@ -165,8 +192,33 @@ main { padding-block:16px 24px }
 </details>
 </section>
 <section id="view-plans" class="panel" role="tabpanel" aria-labelledby="tab-plans" hidden>
+<div id="plan-index">
 <p id="plan-hint" class="meta" role="status" hidden></p>
 <ul id="plans" class="plan-list"></ul><p id="plans-empty" class="empty" hidden></p>
+</div>
+<div id="plan-overview" hidden>
+<div class="overview-toolbar"><button id="back-plans" type="button">← All plans</button><h2 id="overview-title" tabindex="-1">Overview</h2></div>
+<p id="overview-note" class="meta overview-alert" role="status" hidden></p>
+<button id="overview-retry" type="button" hidden>Retry overview</button>
+<div id="overview-content" hidden>
+<section class="overview-goal" aria-label="Plan goal">
+<div class="headline"><h3 id="overview-goal"></h3><div id="overview-status"></div></div>
+<p id="overview-id" class="meta"></p>
+</section>
+<div class="overview-progress">
+<p id="overview-progress"></p>
+<div class="progress-track" aria-hidden="true"><div id="progress-integrated" class="progress-integrated"></div><div id="progress-verified" class="progress-verified"></div></div>
+</div>
+<div class="overview-grid">
+<section class="overview-area" aria-labelledby="overview-tasks-title">
+<h3 id="overview-tasks-title">Tasks</h3><div id="overview-tasks"></div>
+</section>
+<section class="overview-area overview-roster" aria-labelledby="overview-members-title">
+<h3 id="overview-members-title">Plan members</h3><div id="overview-members"></div>
+</section>
+</div>
+</div>
+</div>
 </section>
 </main>
 <script>
@@ -191,6 +243,7 @@ const maxMessages=5*pageSize;
 const canConnect=location.protocol==="http:"||location.protocol==="https:" ? ["localhost","127.0.0.1","[::1]"].includes(location.hostname) : false;
 const requests=new Map();
 let plans=[],planStale=false,openPlan=null,openTask=null,expandedTask=null;
+let overview=null,overviewError=false,integratedOpen=false,planListScroll=0;
 let feedRows=new Map(),filterNames=[];
 let feed=emptyFeed();
 let graph=null,graphIndex=null,graphThrough=null,graphOffset=0,graphNext=null;
@@ -217,14 +270,17 @@ function labels(v){return (Array.isArray(v)?v:[v]).map(labelText).filter(Boolean
 function normalTask(t){
  const id=clean(t?.id)||clean(t?.task_id); if(!id)return null;
  const revision=[t.review_sha,t.revision?.sha,t.revision,t.sha,t.commit_sha,t.commit].find(v=>typeof v==="string"&&/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(v))||"";
- return {id,brief:clean(t.brief)||clean(t.goal)||clean(t.title),criterion:clean(t.criterion),waiting:labels(t.waiting_on),attempt:Number.isInteger(t.attempt)&&t.attempt>0?String(t.attempt):"",state:clean(t.state)||clean(t.status),needs:labels(t.needs??t.dependencies??t.depends_on),worker:labelText(t.worker??t.assignee),verifier:labelText(t.verifier??t.reviewer),notes:[...new Set([...labels(t.blockers??t.blocker),...labels(t.diagnostic??t.reason??t.error)])],revision,evidence:labelText(t.evidence),integrated:typeof t.integrated==="boolean"?t.integrated:null};
+ return {id,brief:clean(t.brief)||clean(t.goal)||clean(t.title),criterion:clean(t.criterion),waiting:labels(t.waiting_on),attempt:Number.isInteger(t.attempt)&&t.attempt>0?String(t.attempt):"",state:clean(t.state)||clean(t.status),needs:labels(t.needs??t.dependencies??t.depends_on),worker:labelText(t.worker??t.assignee),verifier:labelText(t.verifier??t.reviewer),notes:[...new Set([...labels(t.blockers??t.blocker),...labels(t.diagnostic??t.reason??t.error)])],blocker:clean(t.blocker),revision,evidence:labelText(t.evidence),integrated:typeof t.integrated==="boolean"?t.integrated:null};
+}
+function normalPlan(p){
+ const id=clean(p?.id)||clean(p?.plan_id);
+ if(!id)return null;
+ return {id,goal:clean(p.goal)||clean(p.title),state:clean(p.state)||clean(p.status),
+  coordinator:p.coordinator,tasks:(Array.isArray(p.tasks)?p.tasks:[]).map(normalTask).filter(Boolean)};
 }
 function setPlans(s){
  planStale=false;
- plans=(Array.isArray(s?.plans)?s.plans:[]).flatMap(p=>{
-  const id=clean(p?.id)||clean(p?.plan_id);if(!id)return [];
-  return [{id,goal:clean(p.goal)||clean(p.title),state:clean(p.state)||clean(p.status),tasks:(Array.isArray(p.tasks)?p.tasks:[]).map(normalTask).filter(Boolean)}];
- });
+ plans=(Array.isArray(s?.plans)?s.plans:[]).map(normalPlan).filter(Boolean);
 }
 function timeString(value){if(!value)return "";const d=new Date(value);return Number.isNaN(d.getTime())?value:d.toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit"});}
 function statusMessage(message,state=""){ $.connection.textContent=message;$.connection.dataset.state=state; }
@@ -419,7 +475,8 @@ function renderGraph(data){
 }
 function disclosure(key,title,state,caption,expanded,action){
  const button=node("button",undefined,"disclosure"),head=node("span",undefined,"headline"),identity=node("span",undefined,"identity");
- button.type="button";button.dataset.disclosure=key;button.setAttribute("aria-expanded",String(expanded));
+ button.type="button";button.dataset.disclosure=key;
+ if(expanded!==null)button.setAttribute("aria-expanded",String(expanded));
  identity.append(node("strong",title));head.append(identity,pill(state.replaceAll("_"," ")));button.append(head);
  if(caption)button.append(node("span",caption,"meta"));
  button.addEventListener("click",action);
@@ -438,21 +495,28 @@ function taskDetails(t){
  }
  return details.childNodes.length?details:node("p","No task details recorded.","empty");
 }
-function integration(t){
- return t.state==="passed"&&t.integrated!==null?(t.integrated?"Integrated":"Awaiting integration"):"";
+const reviewStates=new Set(["ready_for_verification","verifying","verification_reported"]);
+const taskGroups=[
+ ["Blocked",task=>task.state==="blocked"],
+ ["In review",task=>reviewStates.has(task.state)],
+ ["Awaiting integration",task=>task.state==="passed"&&!task.integrated],
+ ["In progress",task=>task.state==="implementing"],
+ ["Pending",task=>task.state==="pending"],
+ ["Integrated",task=>task.state==="passed"&&task.integrated],
+];
+function planLabel(plan){
+ if(plan.state==="passed")return plan.tasks.every(task=>task.integrated)?"Integrated":"Verified";
+ return plan.state;
 }
-function addTasks(item,p){
- if(!p.tasks.length){
-  item.append(node("p","No tasks recorded.","empty"));
-  return;
- }
- const tasks=node("ol",undefined,"task-list");
- for(const t of p.tasks){
+function taskList(entries){
+ const tasks=node("ul",undefined,"task-list");
+ for(const t of entries){
   const row=node("li"),expanded=openTask===t.id;
-  const caption=[integration(t),t.brief?.split("\n")[0].slice(0,120)].filter(Boolean).join(" · ");
-  row.append(disclosure("task-"+t.id,t.id,t.state,caption,expanded,()=>{
+  const caption=t.blocker||(t.waiting.length?"Waiting on "+t.waiting.join(", "):"");
+  const state=t.state==="passed"?(t.integrated?"Integrated":"Awaiting integration"):t.state;
+  row.append(disclosure("task-"+t.id,t.id,state,caption,expanded,()=>{
    abortRequest("task");
-   openTask=expanded?null:t.id;expandedTask=null;renderPlans();
+   openTask=expanded?null:t.id;expandedTask=null;renderOverview();
    if(openTask)loadTask();
   }));
   if(expanded){
@@ -464,9 +528,9 @@ function addTasks(item,p){
   }
   tasks.append(row);
  }
- item.append(tasks);
+ return tasks;
 }
-function renderPlans(){
+function renderPlanIndex(){
  const list=byId("plans"),empty=byId("plans-empty"),hint=byId("plan-hint");
  const focusKey=list.contains(document.activeElement)?document.activeElement.dataset.disclosure:"";
  const frag=document.createDocumentFragment();
@@ -481,26 +545,121 @@ function renderPlans(){
  }));
  summaries.sort((a,b)=>Number(Boolean(b.blocked||b.awaiting))-Number(Boolean(a.blocked||a.awaiting)));
  for(const {plan:p,passed,blocked,awaiting} of summaries){
-  const item=node("li"), expanded=openPlan===p.id;
-  const counts=[passed+" of "+p.tasks.length+" passed"];
+  const item=node("li");
+  const reviewing=p.tasks.filter(task=>reviewStates.has(task.state)).length;
+  const counts=[passed+" of "+p.tasks.length+" verified"];
   if(blocked)counts.push(blocked+" blocked");
+  if(reviewing)counts.push(reviewing+" in review");
   if(awaiting)counts.push(awaiting+" awaiting integration");
-  item.append(disclosure("plan-"+p.id,p.goal||p.id,p.state,counts.join(" · "),expanded,()=>{
-   abortRequest("task");
-   openPlan=expanded?null:p.id;openTask=null;expandedTask=null;renderPlans();
-  }));
-  if(expanded){
-   if(p.goal)item.append(node("p",p.id,"meta details-body"));
-   addTasks(item,p);
-  }
+  const button=disclosure("plan-"+p.id,p.goal||p.id,planLabel(p),counts.join(" · "),null,()=>openOverview(p.id));
+  button.classList.add("plan-link");
+  item.append(button);
   frag.append(item);
  }
  list.replaceChildren(frag);
- if(focusKey){
-  for(const button of list.querySelectorAll("button")){
-   if(button.dataset.disclosure===focusKey){button.focus({preventScroll:true});break;}
+ restoreDisclosureFocus(list,focusKey);
+}
+function restoreDisclosureFocus(list,key){
+ if(!key)return;
+ for(const button of list.querySelectorAll("button")){
+  if(button.dataset.disclosure===key){button.focus({preventScroll:true});return;}
+ }
+}
+function renderPlanMembers(plan,members){
+ const list=node("ul",undefined,"roster");
+ const coordinator=plan.coordinator;
+ const assignments=new Map();
+ for(const task of plan.tasks){
+  assignments.set(task.worker,{task:task.id,role:"Implementation"});
+  assignments.set(task.verifier,{task:task.id,role:"Verifier"});
+ }
+ if(coordinator?.model){
+  const row=node("li");
+  row.append(node("strong","Coordinator"),node("span",[coordinator.model,coordinator.reasoning_effort].filter(Boolean).join(" · "),"meta"));
+  list.append(row);
+ }
+ for(const raw of members){
+  const member=normalMember(raw);
+  if(!member)continue;
+  const row=node("li"),head=node("div",undefined,"identity");
+  const assignment=assignments.get(member.name);
+  const status=member.status.toLowerCase();
+  const label=member.status==="Running"?"Active":raw.archive_state==="archived"?"Archived":
+   status==="waiting"||completeStatuses.has(status)?"Standing by":member.status;
+  const title=node("strong",assignment?.task||member.name);
+  title.title=member.name;
+  head.append(title,pill(label));
+  row.append(head,node("span",[assignment?.role||member.role,member.model,member.effort].filter(Boolean).join(" · "),"meta"));
+  list.append(row);
+ }
+ const empty=members.length?[]:[node("p","No workers assigned yet.","meta")];
+ byId("overview-members").replaceChildren(list,...empty);
+}
+function renderOverview(){
+ const note=byId("overview-note"), retry=byId("overview-retry");
+ note.hidden=Boolean(overview)&&!overviewError;
+ note.textContent=overviewError?(overview?"Overview refresh failed. Showing the last saved state.":"The plan overview could not be loaded."):"Loading overview…";
+ retry.hidden=!overviewError;
+ byId("overview-content").hidden=!overview;
+ if(!overview)return;
+ const {plan,members}=overview;
+ byId("overview-goal").textContent=plan.goal||plan.id;
+ byId("overview-id").textContent=plan.goal?plan.id:"";
+ byId("overview-status").replaceChildren(pill(planLabel(plan).replaceAll("_"," ")));
+ const total=plan.tasks.length,verified=plan.tasks.filter(task=>task.state==="passed").length;
+ const integrated=plan.tasks.filter(task=>task.state==="passed"&&task.integrated).length;
+ byId("overview-progress").textContent=verified+" of "+total+" verified · "+integrated+" integrated";
+ byId("progress-integrated").style.width=(total?100*integrated/total:0)+"%";
+ byId("progress-verified").style.width=(total?100*(verified-integrated)/total:0)+"%";
+ const taskArea=byId("overview-tasks");
+ const focusKey=taskArea.contains(document.activeElement)?document.activeElement.dataset.disclosure:"";
+ const frag=document.createDocumentFragment();
+ const remaining=plan.tasks.filter(task=>!taskGroups.some(([,matches])=>matches(task)));
+ for(const [label,matches] of [...taskGroups,["Other tasks",task=>remaining.includes(task)]]){
+  const entries=plan.tasks.filter(matches);
+  if(!entries.length)continue;
+  const section=node("section",undefined,"overview-group");
+  if(label==="Integrated"){
+   const details=node("details",undefined,"overview-closed");
+   details.open=integratedOpen||entries.some(task=>task.id===openTask||"task-"+task.id===focusKey);
+   details.addEventListener("toggle",()=>{if(details.isConnected)integratedOpen=details.open;});
+   section.append(taskList(entries));
+   details.append(node("summary",label+" ("+entries.length+")"),section);
+   frag.append(details);
+  }else{
+   section.append(node("h4",label+" ("+entries.length+")"),taskList(entries));
+   frag.append(section);
   }
  }
+ if(!total)frag.append(node("p","No tasks recorded.","empty"));
+ taskArea.replaceChildren(frag);
+ restoreDisclosureFocus(taskArea,focusKey);
+ renderPlanMembers(plan,members);
+}
+function renderPlans(){
+ byId("plan-index").hidden=openPlan!==null;
+ byId("plan-overview").hidden=openPlan===null;
+ if(openPlan)renderOverview();else renderPlanIndex();
+}
+function openOverview(id){
+ planListScroll=window.scrollY;
+ cancelView();
+ openPlan=id;openTask=null;expandedTask=null;overview=null;overviewError=false;integratedOpen=false;
+ renderPlans();
+ byId("overview-title").focus({preventScroll:true});
+ window.scrollTo(0,0);
+ loadPlan();
+ updatePolling();
+}
+function backToPlans(){
+ const focusKey="plan-"+openPlan;
+ cancelView();
+ openPlan=null;openTask=null;expandedTask=null;overview=null;
+ renderPlans();
+ restoreDisclosureFocus(byId("plans"),focusKey);
+ window.scrollTo(0,planListScroll);
+ loadPlans();
+ updatePolling();
 }
 
 function abortRequest(key){
@@ -616,17 +775,30 @@ function loadPlans(){
   if(!bootstrapped)lastSeen=Math.max(lastSeen,data.latest_seq);
   setPlans(data);
   renderPlans();
-  if(openPlan&&openTask&&!requests.has("task"))loadTask();
  },()=>{
   planStale=true;renderPlans();
+ });
+}
+function loadPlan(){
+ if(!openPlan)return;
+ return request("plan","plan",{plan_id:openPlan},data=>{
+  if(!bootstrapped)lastSeen=Math.max(lastSeen,data.latest_seq);
+  const plan=normalPlan(data.plan);
+  if(!plan)throw new Error("Missing plan overview");
+  overview={plan,members:Array.isArray(data.members)?data.members:[]};
+  overviewError=false;
+  renderOverview();
+  if(openTask&&!requests.has("task"))loadTask();
+ },()=>{
+  overviewError=true;renderOverview();
  });
 }
 function loadTask(){
  if(!openPlan||!openTask)return;
  return request("task","task",{plan_id:openPlan,task_id:openTask},data=>{
-  expandedTask={task:normalTask(data.task)};renderPlans();
+  expandedTask={task:normalTask(data.task)};renderOverview();
  },()=>{
-  expandedTask={error:true};renderPlans();
+  expandedTask={error:true};renderOverview();
  });
 }
 function loadGraph(){
@@ -655,12 +827,13 @@ function refreshView(){
   return loadFeed($.follow.checked&&feed.atEnd&&!feed.newer?"live":"count");
  }
  if(activeTab==="members")return loadMembers();
- if(activeTab==="plans")return loadPlans();
+ if(activeTab==="plans"){renderPlans();return openPlan?loadPlan():loadPlans();}
  updateTimeline();
  return loadGraph();
 }
 function refreshKey(){
- return activeTab==="board"?"feed":activeTab;
+ if(activeTab==="board")return "feed";
+ return activeTab==="plans"&&openPlan?"plan":activeTab;
 }
 function scheduleRefresh(){
  if(suspended||document.hidden||(!source&&!isDemo))return;
@@ -796,6 +969,7 @@ const sampleEvents=[
 function demoResponse(endpoint,params){
  const latest_seq=sampleEvents.length;
  if(endpoint==="plans")return {plans:samplePlans,latest_seq};
+ if(endpoint==="plan")return {plan:samplePlans[0],members:sampleMembers.slice(1),latest_seq};
  if(endpoint==="task")return {task:samplePlans[0].tasks.find(task=>task.id===params.get("task_id"))};
  if(endpoint==="members")return {members:sampleMembers,names:sampleMembers.map(member=>member.name),latest_seq};
  if(endpoint==="graph"){
@@ -818,6 +992,8 @@ function demoResponse(endpoint,params){
  return {events,latest_seq,through,total:matches.filter(e=>e.seq<=through).length,
   pending:matches.filter(e=>e.seq>through).length,next_after:null,next_before:null};
 }
+byId("back-plans").addEventListener("click",backToPlans);
+byId("overview-retry").addEventListener("click",loadPlan);
 $.retry.addEventListener("click",connect);
 $.demo.addEventListener("click",()=>{
  ++connectAttempt;disconnect();cancelView();isDemo=true;bootstrapped=false;lastSeen=0;
@@ -830,7 +1006,7 @@ $.demo.addEventListener("click",()=>{
 document.addEventListener("visibilitychange",()=>{
  if(document.hidden){
   clearTimeout(refreshTimer);refreshTimer=null;
-  abortRequest("plans");abortRequest("task");
+  abortRequest("plans");abortRequest("plan");abortRequest("task");
  }else scheduleRefresh();
  updatePolling();
 });
